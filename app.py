@@ -3,7 +3,7 @@
 # DESCRIPCIÓN: Interfaz Streamlit dual con soporte multifluido (CoolProp),
 #              selección de materiales ASME II-D, rangos térmicos ampliados
 #              (5°C a 300°C), visualización completa de Área [m²], Casco Ds [mm],
-#              U_real y exportación sin errores.
+#              U_real, sección de ecuaciones base y exportación sin errores.
 # ==============================================================================
 
 import streamlit as st
@@ -215,6 +215,45 @@ else:
             st.markdown(f"**Tubos [uds]:** `{oper['Tubos [uds]']}` | **OD:** `{oper['OD [mm]']} mm` (`{oper['Pasos [uds]']} pasos`)")
             st.markdown(f"**U Real [W/m²·K]:** `{oper['U Real [W/m²·K]']}` | **Margen:** `{oper['Margen [%]']}%`")
             st.metric("Inversión Estimada [USD]", f"${oper['CAPEX [USD]']:,.2f} USD")
+
+        st.divider()
+
+        # =====================================================================
+        # SECCIÓN EDUCATIVA: ECUACIONES BASE Y CRITERIOS DE INGENIERÍA
+        # =====================================================================
+        with st.expander("📚 Ver Ecuaciones Base y Criterios de Ingeniería del Optimizador (Sinnott & Kern)", expanded=False):
+            st.markdown("""
+            Para calcular y filtrar las **3 opciones óptimas** del catálogo comercial, el motor evalúa rigurosamente las siguientes expresiones y restricciones basadas en el libro *Chemical Engineering Design* (Sinnott & Towler, Cap. 12) y el método clásico de *Kern*:
+
+            #### 1. Balance Térmico y LMTD con Factor de Corrección ($F_t$)
+            * **Carga Térmica ($Q$):** $Q = \dot{m}_{\text{cal}} \cdot C_{p,\text{cal}} \cdot (T_{\text{cal,in}} - T_{\text{cal,out}})$ (propiedades reales evaluadas a $T_{\text{media}}$ mediante `CoolProp`).
+            * **Diferencia de Temperatura Media Logarítmica (Contracorriente pura):**
+              $$\Delta T_{\text{lm}} = \frac{\Delta T_1 - \Delta T_2}{\ln(\Delta T_1 / \Delta T_2)}$$
+            * **LMTD Efectiva:** $\Delta T_m = F_t \cdot \Delta T_{\text{lm}}$, donde $F_t$ se calcula analíticamente en función de los parámetros de temperatura $R$ y $S$ de Bowman para arreglos multipaso (filtrando estrictamente aquellos diseños con $F_t \ge 0.75$).
+
+            #### 2. Dimensionamiento Geométrico Preliminar (*Sizing* desde $U_{\text{trial}}$)
+            * **Área Requerida Teórica [$m^2$]:** 
+              $$A_{\text{req}} = \frac{Q}{U_{\text{trial}} \cdot \Delta T_m}$$
+              *(Empleando el coeficiente global estimado inicial $U_{\text{trial}}$ de la Tabla 12.1 de Sinnott).*
+            * **Número de Tubos y Diámetro de Carcasa ($D_s$):** A partir del área requerida y la longitud normalizada elegida ($L$), se determina la cantidad de tubos y se dimensiona el diámetro interno del casco ($D_s$) utilizando las constantes de arreglos triangulares TEMA ($K_1, n_1$).
+            * **Criterio de Esbeltez Estructural:** Se descartan geometrías desbalanceadas aplicando un filtro estricto de relación largo/diámetro: 
+              $$3 \le \frac{L}{D_s} \le 10$$
+
+            #### 3. Verificación Convectiva Rigurosa (*Rating de Kern* $\rightarrow U_{\text{real}}$)
+            Una vez fijada la geometría, se calculan las velocidades de flujo, números de Reynolds ($Re$) y Prandtl ($Pr$) para ambos lados:
+            * **Lado Tubos (Ecuación de Sieder-Tate / Dittus-Boelter, Sinnott Eq. 12.31):**
+              $$Nu_i = 0.023 \cdot Re_i^{0.8} \cdot Pr_i^{1/3}$$
+            * **Lado Casco (Ecuación de Kern, Sinnott Eq. 12.39):**
+              $$Nu_o = 0.36 \cdot Re_o^{0.55} \cdot Pr_o^{1/3}$$
+            * **Coeficiente Global Real ($U_{\text{calc}}$):** Se suman en serie las resistencias térmicas de película interior, exterior, la pared metálica con su respectiva conductividad ($k_{\text{metal}}$ según la aleación ASME seleccionada) y el factor de ensuciamiento normado ($R_f = 0.0003 \, \text{m}^2\cdot\text{K/W}$):
+              $$\frac{1}{U_{\text{calc}}} = \frac{1}{h_o} + R_f + \frac{d_o \cdot \ln(d_o / d_i)}{2 \cdot k_{\text{metal}}} + \left(\frac{d_o}{d_i}\right)\frac{1}{h_i}$$
+            * **Margen de Seguridad Térmica [%]:** 
+              $$\text{Margen} = \left(\frac{U_{\text{calc}} - U_{\text{req,efectivo}}}{U_{\text{req,efectivo}}}\right) \cdot 100$$
+
+            #### 4. Estimación Económica de Adquisición (*CAPEX* en USD)
+            * Basado en la ecuación factorial de costos de equipos a presión de Sinnott & Towler (Cap. 6, AACE Class 4/5):
+              $$\text{CAPEX} = 10000 + 450 \cdot A_{\text{instalada}}^{0.68} \cdot \left(1 + \left(\frac{P_{\text{dis}}}{50}\right)^{1.2}\right)$$
+            """)
 
         st.divider()
 
