@@ -1,8 +1,9 @@
 # ==============================================================================
 # ARCHIVO: app.py
 # DESCRIPCIÓN: Interfaz Streamlit dual con soporte multifluido (CoolProp),
-#              selección de materiales ASME II-D, visualización completa de
-#              Área [m²], Casco Ds [mm], U_real y exportación sin errores.
+#              selección de materiales ASME II-D, rangos térmicos ampliados
+#              (5°C a 300°C), visualización completa de Área [m²], Casco Ds [mm],
+#              U_real y exportación sin errores.
 # ==============================================================================
 
 import streamlit as st
@@ -66,9 +67,12 @@ m_tubo_sel = st.sidebar.selectbox("Material del Haz de Tubos [-]", list(CATALOGO
 st.sidebar.divider()
 st.sidebar.header("🔧 Parámetros del Proceso")
 m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
-T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 60.0, 200.0, 120.0, 5.0)
-T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 30.0, 100.0, 60.0, 5.0)
-T_frio_in = st.sidebar.slider("Temp. Entrada Fluido Frío [°C]", 15.0, 40.0, 25.0, 1.0)
+
+# Rango ampliado de temperaturas (desde fluidos fríos/refrigerados hasta alta temperatura)
+T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
+T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 10.0, 250.0, 60.0, 5.0)
+T_frio_in = st.sidebar.slider("Temp. Entrada Fluido Frío [°C]", 5.0, 40.0, 25.0, 1.0)
+
 P_op = st.sidebar.slider("Presión Operativa Lado Casco/Tubos [bar]", 2.0, 40.0, 10.0, 1.0)
 
 U_est = st.sidebar.number_input(
