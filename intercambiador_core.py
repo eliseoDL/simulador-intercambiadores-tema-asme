@@ -1,8 +1,8 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
 # DESCRIPCIÓN: Núcleo termodinámico, hidráulico y mecánico (Kern + ASME BPVC)
-#              con bucle de convergencia iterativo para Margen Térmico real,
-#              crossover ASME de alta presión (>25 bar) y perfiles térmicos.
+#              con constantes K1/n1 dinámicas por pasos (Sinnott Tabla 12.4),
+#              bucle iterativo de Margen Térmico y crossover ASME de alta presión.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -30,6 +30,15 @@ CATALOGO_TUBOS_OD = [19.05, 25.4, 31.75]         # Diámetros exteriores OD [mm]
 CATALOGO_LONGITUDES = [2.5, 3.0, 4.0, 5.0, 6.0]  # Longitudes normalizadas de haz [m]
 CATALOGO_PASOS = [1, 2, 4, 6]                    # Pasos por tubos [uds]
 CATALOGO_TEMAS = ["BEM", "AEM", "AES", "BEU"]    # Tipologías TEMA normadas
+
+# Tabla 12.4 de Sinnott & Towler (Cap. 12) - Constantes K1 y n1 para arreglo triangular 30°
+# Considera el espacio físico ocupado por las placas divisorias en cabezales según el nº de pasos
+CONSTANTES_SINNOTT_K1_N1 = {
+    1: {"K1": 0.319, "n1": 2.142},
+    2: {"K1": 0.249, "n1": 2.207},
+    4: {"K1": 0.175, "n1": 2.285},
+    6: {"K1": 0.0743, "n1": 2.499}
+}
 
 
 def _mapear_fluido_coolprop(nombre_amigable: str) -> str:
@@ -74,8 +83,7 @@ def calcular_intercambiador(
 ):
     """
     Ejecuta el dimensionamiento y rating convectivo-hidráulico-mecánico de un equipo.
-    Implementa un bucle iterativo de convergencia para asegurar un Margen Térmico
-    real (A_instalada vs A_req_real) conforme a normas TEMA / API 660 (+15% a +35%).
+    Implementa constantes K1/n1 dinámicas por pasos y bucle iterativo de Margen Térmico.
     """
     fc_cp = _mapear_fluido_coolprop(fluido_cal_nombre)
     ff_cp = _mapear_fluido_coolprop(fluido_frio_nombre)
@@ -141,6 +149,8 @@ def calcular_intercambiador(
         raise ValueError("Cruce térmico detectado en los extremos del intercambiador.")
     
     lmtd = (dT1 - dT2) / np.log(dT1 / dT2)
+    
+    # Factor de corrección de arreglo TEMA (Ft): 1 paso = 1.00; multipaso = 0.90
     Ft = 0.90 if pasos_tubos > 1 else 0.98
     dT_m = lmtd * Ft
 
@@ -149,22 +159,20 @@ def calcular_intercambiador(
     at = (np.pi / 4.0) * (ID_tubo_m ** 2)
     area_tubo_unitaria = np.pi * OD_tubo_m * longitud_tubo_m
     
-    # Estimación inicial de tubos en base a U_estimado
     A_req_trial = Q_w / (U_estimado * dT_m)
     N_tubos = max(4, int(np.ceil(A_req_trial / area_tubo_unitaria)))
     
-    K1 = 0.249
-    n1 = 2.207
+    # Constantes K1 y n1 de Sinnott en función del número de pasos por tubo
+    const_sinnott = CONSTANTES_SINNOTT_K1_N1.get(pasos_tubos, {"K1": 0.249, "n1": 2.207})
+    K1 = const_sinnott["K1"]
+    n1 = const_sinnott["n1"]
+    
     k_metal = CATALOGO_MATERIALES_TUBOS[mat_tubo_nombre]["k"]
     R_fouling = 0.0003
     r_fo = OD_tubo_m / ID_tubo_m
     De = 0.015
 
-    # --------------------------------------------------------------------------
-    # 4. BUCLE DE CONVERGENCIA ITERATIVO KERN (Sinnott Cap. 12)
-    # Ajusta N_tubos hasta que el Área Instalada supere al Área Requerida Real
-    # por U_calc con un Margen Térmico de diseño industrial normativo (~+20%).
-    # --------------------------------------------------------------------------
+    # 4. Bucle iterativo de convergencia (Sinnott Cap. 12)
     for _iter in range(5):
         Ds_m = OD_tubo_m * ((N_tubos / K1) ** (1.0 / n1))
         Ds_mm = max(200.0, Ds_m * 1000.0)
@@ -181,20 +189,17 @@ def calcular_intercambiador(
         Nu_o = 0.36 * (Re_o ** 0.55) * (pr_s ** (1.0/3.0))
         h_o = (Nu_o * k_s) / De
         
-        # Coeficiente Global Real U_calc [W/m²·K]
         inv_U = (1.0 / h_o) + R_fouling + ((OD_tubo_m * np.log(OD_tubo_m / ID_tubo_m)) / (2.0 * k_metal)) + (r_fo / h_i) + (r_fo * R_fouling)
         U_calc = 1.0 / inv_U
         
-        # Área Requerida REAL según el U_calc obtenido en esta geometría
         A_req_real = Q_w / (U_calc * dT_m)
         
-        # Iteramos buscando un exceso de superficie normativo del 20% (API 660 / TEMA)
         N_tubos_nuevo = max(4, int(np.ceil((A_req_real * 1.20) / area_tubo_unitaria)))
         if N_tubos_nuevo == N_tubos:
             break
         N_tubos = N_tubos_nuevo
 
-    # Cálculo final de pérdidas de carga con la geometría convergida
+    # Cálculo hidráulico final
     f_tubo = max(0.0035, 0.046 * (Re_i ** -0.2))
     factor_cabezales = 2.5 if pasos_tubos == 1 else 4.0
     dP_tubos_Pa = pasos_tubos * (8.0 * f_tubo * (longitud_tubo_m / ID_tubo_m) + factor_cabezales) * (rho_t * (v_tubos ** 2) / 2.0)
@@ -206,12 +211,9 @@ def calcular_intercambiador(
     dP_casco_bar = dP_casco_Pa / 1e5
 
     A_instalada = N_tubos * area_tubo_unitaria
-    
-    # DEFINICIÓN NORMATIVA REAL DEL MARGEN TÉRMICO [%] (API 660 / TEMA)
-    # Evalúa el exceso real de superficie instalada sobre la mínima requerida.
     margen_termico = ((A_instalada - A_req_real) / A_req_real) * 100.0
 
-    # 5. Espesor ASME y CAPEX con Crossover de Alta Presión
+    # 5. Espesor ASME y CAPEX con Crossover de Alta Presión (> 25 bar)
     sigma_adm = CATALOGO_MATERIALES_CASCO[mat_casco_nombre]["sigma_adm_MPa"] * 1e6
     P_dis_casco_Pa = P_dis_casco * 1e5
     t_min_casco = (P_dis_casco_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_casco_Pa) + 0.003
@@ -297,8 +299,8 @@ def optimizar_intercambiador(
     f_cal_nombre, f_frio_nombre, mat_casco, mat_tubo, asignacion_caliente="Carcasa"
 ):
     """
-    Evalúa el catálogo comercial garantizando que todos los equipos propuestos
-    tengan un Margen Térmico normativo positivo y caídas de presión aceptables.
+    Evalúa el catálogo comercial. En presiones altas (>25 bar) selecciona BEU
+    en Económico/Compacto, y en Operativo selecciona AES/BEU por ciclo de vida.
     """
     resultados_grid = []
     resultados_backup = []
@@ -371,8 +373,15 @@ def optimizar_intercambiador(
 
     df = pd.DataFrame(resultados_grid)
     
-    idx_eco = df["CAPEX [USD]"].idxmin()
-    idx_comp = df["Área [m²]"].idxmin()
+    # 1. Óptimo Económico: Mínimo CAPEX cumpliendo caída de presión normal (dP <= 1.0 bar)
+    df_eco_valid = df[df["ΔP Tubos [bar]"] <= 1.0]
+    idx_eco = (df_eco_valid if not df_eco_valid.empty else df)["CAPEX [USD]"].idxmin()
+    
+    # 2. Óptimo Compacto: Mínima Área física permitiendo hasta dP <= 1.5 bar (acá competirán 4 y 6 pasos)
+    df_comp_valid = df[df["ΔP Tubos [bar]"] <= 1.5]
+    idx_comp = (df_comp_valid if not df_comp_valid.empty else df)["Área [m²]"].idxmin()
+    
+    # 3. Óptimo Operativo / TCO: Mejor índice de ciclo de vida API 660
     idx_oper = df["Índice de Mérito"].idxmin()
 
     top_rec = {

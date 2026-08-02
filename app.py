@@ -2,7 +2,7 @@
 # ARCHIVO: app.py
 # DESCRIPCIÓN: Interfaz Streamlit con presiones operativas hasta 100 bar,
 #              visualización explícita de caídas de presión, márgenes térmicos,
-#              guía de usuario UX y gráfico dinámico con banner de pasos por tubo/carcasa.
+#              guías educativas UX sobre Margen Térmico y Selección de Pasos.
 # ==============================================================================
 
 import streamlit as st
@@ -47,7 +47,31 @@ def mostrar_guia_margen_termico():
         """)
 
 # ==============================================================================
-# FUNCIÓN AUXILIAR 2: GRÁFICO DINÁMICO MULTIPASO Y DIAGNÓSTICO DE CHOQUE TÉRMICO
+# FUNCIÓN AUXILIAR 2: GUÍA EDUCATIVA DEL OPTIMIZADOR Y MITO DE PASOS
+# ==============================================================================
+def mostrar_guia_seleccion_optimizador():
+    with st.expander("🧠 Guía de Ingeniería: ¿Cómo elige el algoritmo el Top 3 y por qué no siempre conviene usar 4 o 6 pasos?"):
+        st.markdown("""
+        ### 1. El mito del factor $F_t$ y los pasos por tubos
+        Existe la creencia común de que aumentar a 4 o 6 pasos por tubos mejora el factor de corrección de temperatura ($F_t$). **¡En realidad ocurre lo contrario!**
+        * **1 Paso por tubo (100% Contracorriente puro):** Tiene el máximo factor termodinámico posible ($F_t = 1.00$).
+        * **2, 4 o 6 Pasos por tubos:** Al tener trayectorias que van y vienen dentro del casco, parte del flujo opera en corriente paralela, disminuyendo el factor $F_t$ (< 1.00).
+        * **Pasos por carcasa:** Por estándar mundial TEMA (Serie E), **siempre se utiliza 1 solo paso por carcasa** salvo cruces térmicos extremos donde se justifiquen cascos en serie o tipo F.
+
+        ### 2. El verdadero motivo para usar 2, 4 o 6 pasos: Velocidad vs. Bombeo
+        Aumentar el número de pasos por tubos tiene un propósito 100% hidráulico y convectivo:
+        1. **Beneficio térmico:** Al pasar el fluido por menos tubos en paralelo, la velocidad ($v_t$) sube, lo que eleva la turbulencia ($Re_i$) y mejora el coeficiente de película ($h_i$), **reduciendo el Área ($m^2$) requerida**.
+        2. **El costo energético ($\Delta P$):** La caída de presión en los tubos **crece con el cubo del número de pasos** ($\Delta P \propto n_{\\text{pasos}}^3$). Pasar de 2 a 4 pasos multiplica la pérdida de presión por **~8 veces**.
+        3. **Conclusión industrial:** Por eso el **80% de los intercambiadores reales son de 2 pasos por tubos**, ya que logran una excelente turbulencia sin ahogar las bombas de la planta.
+
+        ### 3. ¿Cómo calcula el motor las 3 recomendaciones?
+        * 💰 **Óptimo Económico:** Filtra diseños con caída de presión normal ($\Delta P \le 1.0 \\text{ bar}$) y selecciona el de **menor inversión CAPEX**. A alta presión ($> 25 \\text{ bar}$) activa el *crossover ASME*, eligiendo tubos en U (`BEU`) para ahorrar en placas tubulares pesadas.
+        * 📐 **Óptimo Compacto:** Busca el equipo con la **menor superficie física instalada ($m^2$)** permitiendo mayor velocidad ($\Delta P \le 1.5 \\text{ bar}$). Acá es donde competirán los diseños de 4 o 6 pasos.
+        * 🛡️ **Óptimo Operativo (API 660):** Evalúa el Costo Total de Propiedad (TCO), premiando cabezales flotantes (`AES` / `BEU`) por su facilidad de limpieza (hidrolavado) y absorción de dilataciones térmicas severas.
+        """)
+
+# ==============================================================================
+# FUNCIÓN AUXILIAR 3: GRÁFICO DINÁMICO MULTIPASO Y DIAGNÓSTICO DE CHOQUE TÉRMICO
 # ==============================================================================
 def generar_grafico_perfil_pasos(res: dict):
     """
@@ -340,7 +364,9 @@ else:
             st.markdown(f"**Mg Térmico (Exceso):** `{oper.get('Margen [%]', 0)}%`")
             st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
 
+        # Guías interactivas para el usuario (Margen Térmico y Selección del Optimizador)
         mostrar_guia_margen_termico()
+        mostrar_guia_seleccion_optimizador()
 
         st.divider()
         st.subheader("📈 Análisis y Diagnóstico Dinámico de Película del Modelo Seleccionado")
