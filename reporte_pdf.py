@@ -1,6 +1,7 @@
 # ==============================================================================
 # ARCHIVO: reporte_pdf.py
-# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF con sección Hidráulica.
+# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF con 
+#              parámetros de Diseño ASME independientes para carcasa y tubos.
 # ==============================================================================
 
 import io
@@ -10,6 +11,10 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
+    """
+    Arma y renderiza una hoja de especificaciones PDF profesional, apta para
+    impresión o adjunto en memorias de cálculo de plantas químicas.
+    """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=letter,
@@ -19,6 +24,7 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     story = []
     styles = getSampleStyleSheet()
     
+    # Estilos tipográficos institucionales
     estilo_titulo = ParagraphStyle('TituloHoja', parent=styles['Heading1'], fontSize=14, leading=18, textColor=colors.HexColor('#1A365D'), alignment=1, spaceAfter=4)
     estilo_sub = ParagraphStyle('SubHoja', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#4A5568'), alignment=1, spaceAfter=12)
     estilo_celda = ParagraphStyle('TextoCelda', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#2D3748'))
@@ -41,6 +47,8 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     bloques = [
         ("--- DIMENSIONAMIENTO TEMA & KERN ---", [
             ("Tipo TEMA", d_tema.get("Tipo TEMA [-]")),
+            ("Asignación Lado Carcasa", d_tema.get("Asignación Lado Carcasa")),
+            ("Asignación Lado Tubos", d_tema.get("Asignación Lado Tubos")),
             ("Área Requerida Teórica [m²]", d_tema.get("Área Requerida Teórica [m²]")),
             ("Área Instalada Real [m²]", d_tema.get("Área Instalada Real [m²]")),
             ("Diámetro de Casco Ds [mm]", d_tema.get("Diámetro de Casco Ds [mm]")),
@@ -48,24 +56,20 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
             ("Longitud del Tubo [m]", d_tema.get("Longitud del Tubo [m]")),
             ("Pasos por Tubos [uds]", d_tema.get("Pasos por Tubos [uds]"))
         ]),
-        ("--- VERIFICACIÓN CONVECTIVA (RATING KERN) ---", [
+        ("--- VERIFICACIÓN CONVECTIVA E HIDRÁULICA ---", [
             ("Coef. Global Estimado U_trial [W/m²·K]", d_rating.get("Coef. Global Estimado U_trial [W/m²·K]")),
             ("Coef. Global REAL U_calc [W/m²·K]", d_rating.get("Coef. Global REAL U_calc [W/m²·K]")),
             ("Margen de Seguridad Térmica [%]", d_rating.get("Margen Seguridad Térmica [%]")),
-            ("Coeficiente Película Tubos hi [W/m²·K]", d_rating.get("Coeficiente Película Tubos hi [W/m²·K]")),
-            ("Coeficiente Película Casco ho [W/m²·K]", d_rating.get("Coeficiente Película Casco ho [W/m²·K]"))
-        ]),
-        ("--- HIDRÁULICA Y CAÍDA DE PRESIÓN ΔP ---", [
-            ("Velocidad Tubos vt [m/s]", d_hidro.get("Velocidad Tubos vt [m/s]")),
             ("Caída Presión Tubos ΔPt [bar]", d_hidro.get("Caída Presión Tubos ΔPt [bar]")),
-            ("Velocidad Casco vs [m/s]", d_hidro.get("Velocidad Casco vs [m/s]")),
             ("Caída Presión Casco ΔPs [bar]", d_hidro.get("Caída Presión Casco ΔPs [bar]"))
         ]),
-        ("--- DISEÑO MECÁNICO ASME BPVC ---", [
-            ("Material Carcasa", d_asme.get("Material Carcasa [-]")),
-            ("Material Tubos", d_asme.get("Material Tubos [-]")),
+        ("--- DISEÑO MECÁNICO ASME BPVC (DISEÑO VS OPERACIÓN) ---", [
+            ("Material Carcasa / Tubos", f"{d_asme.get('Material Carcasa [-]')} / {d_asme.get('Material Tubos [-]')}"),
+            ("Presión Operativa / Diseño Casco [bar]", f"{d_asme.get('Presión Operativa Casco [bar]')} / {d_asme.get('Presión de Diseño Casco [bar]')} bar"),
+            ("Temp. Diseño Casco [°C]", f"{d_asme.get('Temp. de Diseño Casco [°C]')} °C"),
+            ("Presión Operativa / Diseño Tubos [bar]", f"{d_asme.get('Presión Operativa Tubos [bar]')} / {d_asme.get('Presión de Diseño Tubos [bar]')} bar"),
+            ("Temp. Diseño Tubos [°C]", f"{d_asme.get('Temp. de Diseño Tubos [°C]')} °C"),
             ("Espesor Mínimo Casco t_min [mm]", d_asme.get("Espesor Mínimo Casco t_min [mm]")),
-            ("Presión de Diseño [bar]", d_asme.get("Presión de Diseño [bar]")),
             ("CAPEX Estimado [USD]", d_asme.get("CAPEX Estimado [USD]"))
         ]),
         ("--- BALANCE TERMODINÁMICO ---", [

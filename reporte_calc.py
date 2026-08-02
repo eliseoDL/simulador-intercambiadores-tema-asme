@@ -1,16 +1,21 @@
 # ==============================================================================
 # ARCHIVO: reporte_calc.py
-# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx)
-#              con diseño técnico incluyendo Hidráulica y Caídas de Presión ΔP.
+# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx) con
+#              asignación de corrientes operativas y diseño mecánico ASME BPVC.
 # ==============================================================================
 
 import io
 import pandas as pd
 
 def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
+    """
+    Constructo modular que transforma el diccionario térmico-mecánico res en una 
+    Hoja de Datos Excel normada (estilo TEMA/API 660) apta para auditoría EPC.
+    """
     output = io.BytesIO()
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Bloque de Encabezado / Metadata del Proyecto
         df_meta = pd.DataFrame([
             {"Parámetro de Proyecto": "TAG del Equipo", "Valor": meta.get("tag", "HEX-0100")},
             {"Parámetro de Proyecto": "Proyecto", "Valor": meta.get("proyecto", "GENERAL")},
@@ -25,31 +30,36 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
         d_asme = res.get("Diseño Mecánico ASME BPVC", {})
         d_termo = res.get("Termodinámica", {})
 
+        # Estructura jerárquica de la planilla técnica
         filas_resumen = [
             ("--- DIMENSIONAMIENTO TEMA & KERN ---", ""),
             ("Tipo TEMA", d_tema.get("Tipo TEMA [-]")),
+            ("Asignación Lado Carcasa", d_tema.get("Asignación Lado Carcasa")),
+            ("Asignación Lado Tubos", d_tema.get("Asignación Lado Tubos")),
             ("Área Requerida Teórica [m²]", d_tema.get("Área Requerida Teórica [m²]")),
             ("Área Instalada Real [m²]", d_tema.get("Área Instalada Real [m²]")),
             ("Diámetro de Casco Ds [mm]", d_tema.get("Diámetro de Casco Ds [mm]")),
             ("Número de Tubos [uds]", d_tema.get("Número de Tubos [uds]")),
             ("Longitud del Tubo [m]", d_tema.get("Longitud del Tubo [m]")),
             ("Pasos por Tubos [uds]", d_tema.get("Pasos por Tubos [uds]")),
-            ("--- VERIFICACIÓN CONVECTIVA (RATING) ---", ""),
+            ("--- VERIFICACIÓN CONVECTIVA E HIDRÁULICA ---", ""),
             ("Coef. Global Estimado U_trial [W/m²·K]", d_rating.get("Coef. Global Estimado U_trial [W/m²·K]")),
             ("Coef. Global REAL U_calc [W/m²·K]", d_rating.get("Coef. Global REAL U_calc [W/m²·K]")),
             ("Margen de Seguridad Térmico [%]", d_rating.get("Margen Seguridad Térmica [%]")),
-            ("Coeficiente Película Tubos hi [W/m²·K]", d_rating.get("Coeficiente Película Tubos hi [W/m²·K]")),
-            ("Coeficiente Película Casco ho [W/m²·K]", d_rating.get("Coeficiente Película Casco ho [W/m²·K]")),
-            ("--- HIDRÁULICA Y CAÍDA DE PRESIÓN ΔP ---", ""),
             ("Velocidad Tubos vt [m/s]", d_hidro.get("Velocidad Tubos vt [m/s]")),
             ("Caída Presión Tubos ΔPt [bar]", d_hidro.get("Caída Presión Tubos ΔPt [bar]")),
             ("Velocidad Casco vs [m/s]", d_hidro.get("Velocidad Casco vs [m/s]")),
             ("Caída Presión Casco ΔPs [bar]", d_hidro.get("Caída Presión Casco ΔPs [bar]")),
-            ("--- DISEÑO MECÁNICO ASME BPVC ---", ""),
+            ("--- DISEÑO MECÁNICO ASME BPVC (DISEÑO VS OPERACIÓN) ---", ""),
             ("Material Carcasa", d_asme.get("Material Carcasa [-]")),
             ("Material Tubos", d_asme.get("Material Tubos [-]")),
+            ("Presión Operativa Casco [bar]", d_asme.get("Presión Operativa Casco [bar]")),
+            ("Presión de Diseño Casco [bar]", d_asme.get("Presión de Diseño Casco [bar]")),
+            ("Temp. de Diseño Casco [°C]", d_asme.get("Temp. de Diseño Casco [°C]")),
+            ("Presión Operativa Tubos [bar]", d_asme.get("Presión Operativa Tubos [bar]")),
+            ("Presión de Diseño Tubos [bar]", d_asme.get("Presión de Diseño Tubos [bar]")),
+            ("Temp. de Diseño Tubos [°C]", d_asme.get("Temp. de Diseño Tubos [°C]")),
             ("Espesor Mínimo Casco t_min [mm]", d_asme.get("Espesor Mínimo Casco t_min [mm]")),
-            ("Presión de Diseño [bar]", d_asme.get("Presión de Diseño [bar]")),
             ("CAPEX Estimado [USD]", d_asme.get("CAPEX Estimado [USD]")),
             ("--- TERMODINÁMICA ---", ""),
             ("Carga Térmica Q [kW]", d_termo.get("Carga Térmica Q [kW]")),

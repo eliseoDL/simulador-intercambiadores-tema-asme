@@ -1,6 +1,8 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit con formateo explícito de 3 decimales para ΔP.
+# DESCRIPCIÓN: Interfaz Web Streamlit con controles de asignación de fluidos,
+#              presiones operativas independientes, blindaje anti-KeyError y 
+#              visualización explícita de 3 decimales para caídas de presión ΔP.
 # ==============================================================================
 
 import streamlit as st
@@ -20,11 +22,12 @@ st.set_page_config(
 
 st.title("🔄 Simulador y Optimizador de Intercambiadores de Casco y Tubos (TEMA / ASME)")
 st.markdown(
-    "**Motor termodinámico e hidráulico (`CoolProp`), Método de Kern (Sinnott Cap. 12) con cálculo riguroso de caídas de presión ($\Delta P$) en tubos y casco.**"
+    "**Motor termodinámico e hidráulico (`CoolProp`), Método de Kern (Sinnott Cap. 12) y condiciones de Diseño ASME BPVC Sección VIII Div. 1.**\n\n"
+    "*Compatible con exportación de corrientes de simuladores de proceso (UniSim / DWSIM / Aspen).* "
 )
 
 # ==============================================================================
-# BARRA LATERAL UNIFICADA
+# BARRA LATERAL UNIFICADA (CONTROLES DE PROCESO Y MATERIALES)
 # ==============================================================================
 st.sidebar.header("🎛️ Modo de Operación")
 modo_app = st.sidebar.radio(
@@ -36,18 +39,26 @@ modo_app = st.sidebar.radio(
 )
 
 st.sidebar.divider()
-st.sidebar.header("🧪 Selección de Fluidos (CoolProp / IF97)")
+st.sidebar.header("🧪 Selección y Asignación de Fluidos")
 lista_fluidos = [
     "Agua Desmineralizada (Water)", "Amoníaco Anhidro (Ammonia)", "Etanol / Alcohol (Ethanol)", 
     "Propano Industrial (Propane)", "Metano / Gas Natural (Methane)", 
     "Dióxido de Carbono (CO2)", "Aire Seco (Air)", "Benceno (Benzene)", "Tolueno (Toluene)"
 ]
 
-f_cal = st.sidebar.selectbox("Fluido Lado Caliente (Proceso) [-]", lista_fluidos, index=0)
-f_frio = st.sidebar.selectbox("Fluido Lado Frío (Servicio Auxiliar) [-]", lista_fluidos[:4], index=0)
+f_cal = st.sidebar.selectbox("Fluido Caliente (Proceso) [-]", lista_fluidos, index=0)
+f_frio = st.sidebar.selectbox("Fluido Frío (Servicio Auxiliar) [-]", lista_fluidos[:4], index=0)
+
+# Selector heurístico: define quién circula por tubos o carcasa
+asig_sel = st.sidebar.selectbox(
+    "Asignación: ¿Por dónde pasa el Fluido Caliente? [-]",
+    ["Por Carcasa (Lado Casco)", "Por Tubos (Lado Tubos)"],
+    index=0
+)
+asignacion_val = "Carcasa" if "Carcasa" in asig_sel else "Tubos"
 
 u_ref = estimar_u_automatico(f_cal, f_frio)
-st.sidebar.info(f"💡 **Coeficiente U de Arranque Asignado:** `{u_ref} [W/m²·K]`")
+st.sidebar.info(f"💡 **U Arranque Asignado:** `{u_ref} [W/m²·K]`")
 
 st.sidebar.divider()
 st.sidebar.header("🛡️ Materiales Normados (ASME Sec. II-D)")
@@ -55,13 +66,16 @@ m_casco_sel = st.sidebar.selectbox("Material Carcasa / Casco [-]", list(CATALOGO
 m_tubo_sel = st.sidebar.selectbox("Material del Haz de Tubos [-]", list(CATALOGO_MATERIALES_TUBOS.keys()), index=0)
 
 st.sidebar.divider()
-st.sidebar.header("🔧 Parámetros de Proceso y Temperaturas")
+st.sidebar.header("🔧 Parámetros de Corrientes (Simulador)")
 m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
 
 T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
 T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 10.0, 250.0, 60.0, 5.0)
+P_cal_op = st.sidebar.slider("Presión Operativa Fluido Caliente [bar]", 1.0, 50.0, 10.0, 0.5)
+
+st.sidebar.divider()
 T_frio_in = st.sidebar.slider("Temp. Entrada Fluido Frío [°C]", 5.0, 40.0, 25.0, 1.0)
-P_op = st.sidebar.slider("Presión Operativa Lado Casco/Tubos [bar]", 2.0, 40.0, 10.0, 1.0)
+P_frio_op = st.sidebar.slider("Presión Operativa Fluido Frío [bar]", 1.0, 50.0, 5.0, 0.5)
 
 # ==============================================================================
 # MODO 1: VERIFICACIÓN Y SIMULACIÓN MANUAL
@@ -74,22 +88,24 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
 
     try:
         res = calcular_intercambiador(
-            m_caliente_kg_s=m_cal, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out, P_cal_bar=P_op,
-            T_frio_in_C=T_frio_in, P_frio_bar=5.0, tipo_tema=tema_tipo,
+            m_caliente_kg_s=m_cal, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out, P_cal_bar=P_cal_op,
+            T_frio_in_C=T_frio_in, P_frio_bar=P_frio_op, tipo_tema=tema_tipo,
             pasos_tubos=pasos, longitud_tubo_m=long_tubo,
             fluido_cal_nombre=f_cal, fluido_frio_nombre=f_frio,
-            mat_casco_nombre=m_casco_sel, mat_tubo_nombre=m_tubo_sel
+            mat_casco_nombre=m_casco_sel, mat_tubo_nombre=m_tubo_sel,
+            asignacion_caliente=asignacion_val
         )
 
         st.subheader("📊 Métricas Clave y Verificación Convectiva e Hidráulica")
         col1, col2, col3, col4 = st.columns(4)
         
+        # Extracción segura anti-KeyError utilizando .get()
         area_inst = res.get("Dimensionamiento TEMA & Kern", {}).get("Área Instalada Real [m²]", "N/A")
         u_real = res.get("Verificación Convectiva (Rating Kern)", {}).get("Coef. Global REAL U_calc [W/m²·K]", "N/A")
         
         hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
-        dp_t = hidro.get("Caída Presión Tubos ΔPt [bar]", 0.01)
-        dp_s = hidro.get("Caída Presión Casco ΔPs [bar]", 0.01)
+        dp_t = float(hidro.get("Caída Presión Tubos ΔPt [bar]", 0.01))
+        dp_s = float(hidro.get("Caída Presión Casco ΔPs [bar]", 0.01))
         
         margen_term = res.get("Verificación Convectiva (Rating Kern)", {}).get("Margen Seguridad Térmica [%]", "0.0")
 
@@ -112,7 +128,7 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
             "Dimensionamiento TEMA & Kern",
             "Verificación Convectiva (U Real)",
             "Hidráulica y Caída de Presión ΔP",
-            "Diseño Mecánico ASME BPVC",
+            "Diseño Mecánico ASME BPVC (Diseño vs Operación)",
             "Balance Termodinámico"
         ])
         with tab1:
@@ -134,14 +150,15 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
 # ==============================================================================
 else:
     st.subheader("🚀 Selección Inteligente de Equipos (Grid Search Multicriterio)")
-    st.markdown("El motor evalúa combinaciones de tipos TEMA y geometrías aplicando **criterios hidráulicos ($\Delta P$) y técnico-económicos**.")
+    st.markdown("El motor evalúa combinaciones de tipos TEMA y geometrías aplicando **criterios hidráulicos ($\Delta P$) y técnico-económicos ASME**.")
 
     try:
         df_grid, top_rec = optimizar_intercambiador(
             m_cal_kg_s=m_cal, T_cal_in=T_cal_in, T_cal_out=T_cal_out,
-            P_cal_bar=P_op, T_frio_in=T_frio_in, P_frio_bar=5.0,
+            P_cal_bar=P_cal_op, T_frio_in=T_frio_in, P_frio_bar=P_frio_op,
             f_cal_nombre=f_cal, f_frio_nombre=f_frio,
-            mat_casco=m_casco_sel, mat_tubo=m_tubo_sel
+            mat_casco=m_casco_sel, mat_tubo=m_tubo_sel,
+            asignacion_caliente=asignacion_val
         )
 
         st.markdown("### 🏆 Top 3 Recomendaciones Tecnológicas de Diseño")
@@ -152,10 +169,10 @@ else:
             st.success("💰 **ÓPTIMO ECONÓMICO**")
             st.markdown(f"**TEMA:** `{eco.get('TEMA [-]', 'BEM')}` | **Área:** `{eco.get('Área [m²]', 0)} m²`")
             st.markdown(f"**Casco Ds:** `{eco.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{eco.get('Longitud [m]', 0)} m`")
-            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{eco.get('T Frío Salida [°C]', 0)}°C`")
+            st.markdown(f"**P Diseño Casco/Tubos:** `{eco.get('P Dis Casco [bar]', 0)}` / `{eco.get('P Dis Tubos [bar]', 0)} bar`")
             dp_t_eco = float(eco.get("ΔP Tubos [bar]", 0.01))
             dp_s_eco = float(eco.get("ΔP Casco [bar]", 0.01))
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_eco:.3f}` / `{dp_s_eco:.3f} bar`")
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_eco:.3f}` / `{dp_s_eco:.3f} bar`") # 3 decimales
             st.metric("Inversión Estimada", f"${eco.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t2:
@@ -163,10 +180,10 @@ else:
             st.info("📐 **ÓPTIMO COMPACTO**")
             st.markdown(f"**TEMA:** `{comp.get('TEMA [-]', 'BEM')}` | **Área:** `{comp.get('Área [m²]', 0)} m²`")
             st.markdown(f"**Casco Ds:** `{comp.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{comp.get('Longitud [m]', 0)} m`")
-            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{comp.get('T Frío Salida [°C]', 0)}°C`")
+            st.markdown(f"**P Diseño Casco/Tubos:** `{comp.get('P Dis Casco [bar]', 0)}` / `{comp.get('P Dis Tubos [bar]', 0)} bar`")
             dp_t_comp = float(comp.get("ΔP Tubos [bar]", 0.01))
             dp_s_comp = float(comp.get("ΔP Casco [bar]", 0.01))
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_comp:.3f}` / `{dp_s_comp:.3f} bar`")
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_comp:.3f}` / `{dp_s_comp:.3f} bar`") # 3 decimales
             st.metric("Inversión Estimada", f"${comp.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t3:
@@ -174,10 +191,10 @@ else:
             st.warning("🛡️ **ÓPTIMO OPERATIVO (API 660 / EDR)**")
             st.markdown(f"**TEMA:** `{oper.get('TEMA [-]', 'BEM')}` | **Área:** `{oper.get('Área [m²]', 0)} m²`")
             st.markdown(f"**Casco Ds:** `{oper.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{oper.get('Longitud [m]', 0)} m`")
-            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{oper.get('T Frío Salida [°C]', 0)}°C`")
+            st.markdown(f"**P Diseño Casco/Tubos:** `{oper.get('P Dis Casco [bar]', 0)}` / `{oper.get('P Dis Tubos [bar]', 0)} bar`")
             dp_t_oper = float(oper.get("ΔP Tubos [bar]", 0.01))
             dp_s_oper = float(oper.get("ΔP Casco [bar]", 0.01))
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_oper:.3f}` / `{dp_s_oper:.3f} bar`")
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_oper:.3f}` / `{dp_s_oper:.3f} bar`") # 3 decimales
             st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
 
         st.divider()
