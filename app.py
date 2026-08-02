@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit optimizada y robusta para visualización y exportación.
+# DESCRIPCIÓN: Interfaz Streamlit con selección inteligente y tarjetas garantizadas.
 # ==============================================================================
 
 import streamlit as st
@@ -55,9 +55,8 @@ m_casco_sel = st.sidebar.selectbox("Material Carcasa / Casco [-]", list(CATALOGO
 m_tubo_sel = st.sidebar.selectbox("Material del Haz de Tubos [-]", list(CATALOGO_MATERIALES_TUBOS.keys()), index=0)
 
 st.sidebar.divider()
-st.sidebar.header("🔧 Parámetros de Caudales y Proceso")
+st.sidebar.header("🔧 Parámetros del Proceso")
 m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
-m_frio = st.sidebar.slider("Caudal Fluido Frío Disponible [kg/s]", 1.0, 30.0, 8.0, 0.5)
 
 T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
 T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 10.0, 250.0, 60.0, 5.0)
@@ -76,7 +75,7 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
     try:
         res = calcular_intercambiador(
             m_caliente_kg_s=m_cal, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out, P_cal_bar=P_op,
-            m_frio_kg_s=m_frio, T_frio_in_C=T_frio_in, P_frio_bar=5.0, tipo_tema=tema_tipo,
+            T_frio_in_C=T_frio_in, P_frio_bar=5.0, tipo_tema=tema_tipo,
             pasos_tubos=pasos, longitud_tubo_m=long_tubo,
             fluido_cal_nombre=f_cal, fluido_frio_nombre=f_frio,
             mat_casco_nombre=m_casco_sel, mat_tubo_nombre=m_tubo_sel
@@ -127,7 +126,7 @@ else:
     try:
         df_grid, top_rec = optimizar_intercambiador(
             m_cal_kg_s=m_cal, T_cal_in=T_cal_in, T_cal_out=T_cal_out,
-            P_cal_bar=P_op, m_frio_kg_s=m_frio, T_frio_in=T_frio_in, P_frio_bar=5.0,
+            P_cal_bar=P_op, T_frio_in=T_frio_in, P_frio_bar=5.0,
             f_cal_nombre=f_cal, f_frio_nombre=f_frio,
             mat_casco=m_casco_sel, mat_tubo=m_tubo_sel
         )
