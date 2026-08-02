@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
-# DESCRIPCIÓN: Núcleo termodinámico robusto con CoolProp y optimizador garantizado.
+# DESCRIPCIÓN: Núcleo termodinámico robusto con CoolProp y optimizador TEMA avanzado.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -24,6 +24,7 @@ CATALOGO_MATERIALES_TUBOS = {
 CATALOGO_TUBOS_OD = [19.05, 25.4, 31.75]  # [mm]
 CATALOGO_LONGITUDES = [2.5, 3.0, 4.0, 5.0, 6.0]  # [m]
 CATALOGO_PASOS = [1, 2, 4, 6]
+CATALOGO_TEMAS = ["BEM", "AEM", "AES", "BEU"]
 
 def _mapear_fluido_coolprop(nombre_amigable: str) -> str:
     mapping = {
@@ -99,7 +100,7 @@ def calcular_intercambiador(
         raise ValueError("Cruce térmico detectado en los extremos del intercambiador.")
     
     lmtd = (dT1 - dT2) / np.log(dT1 / dT2)
-    Ft = 0.90
+    Ft = 0.90 if pasos_tubos > 1 else 0.98
     dT_m = lmtd * Ft
 
     A_req = Q_w / (U_estimado * dT_m)
@@ -142,7 +143,9 @@ def calcular_intercambiador(
     t_min_casco = (P_dis_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_Pa) + 0.003
     t_min_casco_mm = max(6.35, t_min_casco * 1000.0)
 
-    capex = 10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_cal_bar / 50.0) ** 1.2))
+    # Factor de penalización en CAPEX según tipo TEMA (ej: AES con cabezal flotante o BEU en U son más costosos)
+    factor_tema_costo = 1.15 if tipo_tema in ["AES", "BEU"] else 1.0
+    capex = (10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_cal_bar / 50.0) ** 1.2))) * factor_tema_costo
 
     z_vals = np.linspace(0, longitud_tubo_m, 10)
     T_cal_perfil = T_cal_in_C - (T_cal_in_C - T_cal_out_C) * (z_vals / longitud_tubo_m)
@@ -175,6 +178,7 @@ def calcular_intercambiador(
         "Termodinámica": {
             "Carga Térmica Q [kW]": round(Q_w / 1000.0, 2),
             "Caudal Fluido Frío [kg/s]": round(m_frio_kg_s, 2),
+            "Temperatura Entrada Frío [°C]": round(T_frio_in_C, 2),
             "Temperatura Salida Frío [°C]": round(T_frio_out_C, 2),
             "LMTD Corregida [°C]": round(dT_m, 2),
             "Factor Ft [-]": round(Ft, 2)
@@ -197,7 +201,7 @@ def optimizar_intercambiador(
     for od in CATALOGO_TUBOS_OD:
         for L in CATALOGO_LONGITUDES:
             for pasos in CATALOGO_PASOS:
-                for tema in ["BEM", "AEM", "AES"]:
+                for tema in CATALOGO_TEMAS: # Recorre todos los tipos TEMA libremente
                     try:
                         res = calcular_intercambiador(
                             m_caliente_kg_s=m_cal_kg_s, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out,
@@ -221,19 +225,17 @@ def optimizar_intercambiador(
                             "Margen [%]": res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"],
                             "Ft [-]": res["Termodinámica"]["Factor Ft [-]"],
                             "CAPEX [USD]": res["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"],
+                            "T Frío Salida [°C]": res["Termodinámica"]["Temperatura Salida Frío [°C]"],
                             "_res_full": res
                         }
 
-                        # Guardamos absolutamente todo en el backup para garantizar tolerancia a fallos
                         resultados_backup.append(item_dict)
 
-                        # Filtro flexible para el modo principal
-                        if 1.0 <= esbeltez <= 35.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -90.0:
+                        if 1.0 <= esbeltez <= 40.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -95.0:
                             resultados_grid.append(item_dict)
                     except Exception:
                         continue
 
-    # Si por alguna razón extrema el filtro principal quedó vacío, usamos el backup para NUNCA fallar
     if not resultados_grid:
         if resultados_backup:
             resultados_grid = resultados_backup

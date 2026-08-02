@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit con barra lateral unificada y controles completos.
+# DESCRIPCIÓN: Interfaz Streamlit con visualización completa de temperaturas fría y caliente.
 # ==============================================================================
 
 import streamlit as st
@@ -139,6 +139,7 @@ else:
             st.success("💰 **ÓPTIMO ECONÓMICO**")
             st.markdown(f"**Área [m²]:** `{eco['Área [m²]']}` | **TEMA:** `{eco['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{eco['Casco Ds [mm]']}` | **Longitud:** `{eco['Longitud [m]']} m`")
+            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{eco['T Frío Salida [°C]']}°C`")
             st.markdown(f"**U Real:** `{eco['U Real [W/m²·K]']}` | **Margen:** `{eco['Margen [%]']}%`")
             st.metric("Inversión Estimada", f"${eco['CAPEX [USD]']:,.2f} USD")
 
@@ -147,6 +148,7 @@ else:
             st.info("📐 **ÓPTIMO COMPACTO**")
             st.markdown(f"**Área [m²]:** `{comp['Área [m²]']}` | **TEMA:** `{comp['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{comp['Casco Ds [mm]']}` | **Longitud:** `{comp['Longitud [m]']} m`")
+            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{comp['T Frío Salida [°C]']}°C`")
             st.markdown(f"**U Real:** `{comp['U Real [W/m²·K]']}` | **Margen:** `{comp['Margen [%]']}%`")
             st.metric("Inversión Estimada", f"${comp['CAPEX [USD]']:,.2f} USD")
 
@@ -155,6 +157,7 @@ else:
             st.warning("🛡️ **ÓPTIMO OPERATIVO**")
             st.markdown(f"**Área [m²]:** `{oper['Área [m²]']}` | **TEMA:** `{oper['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{oper['Casco Ds [mm]']}` | **Longitud:** `{oper['Longitud [m]']} m`")
+            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{oper['T Frío Salida [°C]']}°C`")
             st.markdown(f"**U Real:** `{oper['U Real [W/m²·K]']}` | **Margen:** `{oper['Margen [%]']}%`")
             st.metric("Inversión Estimada", f"${oper['CAPEX [USD]']:,.2f} USD")
 
