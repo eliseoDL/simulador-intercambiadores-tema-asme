@@ -1,8 +1,8 @@
 # ==============================================================================
 # ARCHIVO: app.py
 # DESCRIPCIÓN: Interfaz Streamlit con presiones operativas hasta 100 bar,
-#              visualización explícita de caídas de presión, márgenes térmicos
-#              reales y guía interactiva para el usuario sobre el Margen Térmico (%).
+#              visualización explícita de caídas de presión, márgenes térmicos,
+#              guía de usuario UX y gráfico dinámico multipaso con choque térmico.
 # ==============================================================================
 
 import streamlit as st
@@ -27,7 +27,7 @@ st.markdown(
 )
 
 # ==============================================================================
-# FUNCIÓN AUXILIAR: GUÍA EDUCATIVA UX DE MARGEN TÉRMICO
+# FUNCIÓN AUXILIAR 1: GUÍA EDUCATIVA UX DE MARGEN TÉRMICO
 # ==============================================================================
 def mostrar_guia_margen_termico():
     with st.expander("ℹ️ Guía industrial: ¿Qué es el Margen Térmico (%) y cómo interpretarlo?"):
@@ -45,6 +45,112 @@ def mostrar_guia_margen_termico():
         | **`+15 % a +35 %`** | ✅ **Óptimo Normativo (API 660 / TEMA)** | **Rango ideal de diseño EPC.** Asegura 1 a 2 años de operación continua sin limpieza, absorbiendo suciedad y picos de carga. |
         | **`> +40 %`** | 💰 **Sobredimensionado (Exceso CAPEX)** | El equipo es innecesariamente grande y costoso para el servicio demandado. |
         """)
+
+# ==============================================================================
+# FUNCIÓN AUXILIAR 2: GRÁFICO DINÁMICO MULTIPASO Y DIAGNÓSTICO DE CHOQUE TÉRMICO
+# ==============================================================================
+def generar_grafico_perfil_pasos(res: dict):
+    """
+    Genera un gráfico dinámico Plotly que muestra la evolución de temperatura
+    paso a paso por el haz de tubos, el perfil de temperatura de pared (T_wall)
+    y evalúa la agresividad del intercambio (choque térmico dT/dz).
+    """
+    d_tema = res.get("Dimensionamiento TEMA & Kern", {})
+    d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
+    d_termo = res.get("Termodinámica", {})
+
+    pasos = int(d_tema.get("Pasos por Tubos [uds]", 2))
+    L_tubo = float(d_tema.get("Longitud del Tubo [m]", 3.0))
+    L_total = L_tubo * pasos
+
+    T_frio_in = float(d_termo.get("Temperatura Entrada Frío [°C]", 25.0))
+    T_frio_out = float(d_termo.get("Temperatura Salida Frío [°C]", 60.0))
+    
+    perfil_orig = res.get("PerfilGrafico", {})
+    T_cal_in = float(perfil_orig.get("T_cal", [120.0, 80.0])[0])
+    T_cal_out = float(perfil_orig.get("T_cal", [120.0, 80.0])[-1])
+
+    u_val = float(d_rating.get("Coef. Global REAL U_calc [W/m²·K]", 800.0))
+    ho_val = float(d_rating.get("Coeficiente Película Casco ho [W/m²·K]", 1500.0))
+
+    n_puntos = 50 * pasos
+    x_total = np.linspace(0, L_total, n_puntos)
+    k_decay = 2.0 / max(1.0, L_total)
+    
+    T_frio_curva = T_frio_in + (T_frio_out - T_frio_in) * (1.0 - np.exp(-k_decay * x_total)) / (1.0 - np.exp(-k_decay * L_total))
+    T_cal_curva = T_cal_in - (T_cal_in - T_cal_out) * (1.0 - np.exp(-k_decay * x_total)) / (1.0 - np.exp(-k_decay * L_total))
+    
+    T_wall_curva = [
+        tc - (tc - tf) * (u_val / max(1.0, ho_val)) 
+        for tc, tf in zip(T_cal_curva, T_frio_curva)
+    ]
+
+    dT_dz_max = abs(T_frio_curva[5] - T_frio_curva[0]) / max(0.01, (x_total[5] - x_total[0]))
+    T_wall_max = max(T_wall_curva)
+
+    c_kpi1, c_kpi2, c_kpi3 = st.columns(3)
+    c_kpi1.metric("🔥 Temp. Máxima de Pared (T_wall)", f"{T_wall_max:.1f} °C", "Película límite")
+    c_kpi2.metric("📈 Gradiente Térmico Máx. (dT/dz)", f"{dT_dz_max:.1f} °C/m", "Severidad inicial")
+    
+    with c_kpi3:
+        if dT_dz_max > 30.0:
+            st.error("🔴 **INTERCAMBIO AGRESIVO**\nAlto riesgo de choque térmico / incrustación.")
+        elif dT_dz_max > 18.0:
+            st.warning("🟡 **INTERCAMBIO MODERADO**\nMonitorear ensuciamiento en Paso 1.")
+        else:
+            st.success("🟢 **INTERCAMBIO SUAVE**\nCalentamiento progresivo y seguro.")
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=x_total, y=T_cal_curva,
+        mode='lines', name='Fluido Caliente (Carcasa/Tubos)',
+        line=dict(color='#E53E3E', width=3)
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=x_total, y=T_frio_curva,
+        mode='lines', name='Fluido Frío (Recorrido Tubos)',
+        line=dict(color='#3182CE', width=3)
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=x_total, y=T_wall_curva,
+        mode='lines', name='Temp. de Pared Metálica (T_wall)',
+        line=dict(color='#DD6B20', width=2, dash='dash')
+    ))
+
+    for p in range(1, pasos):
+        x_sep = p * L_tubo
+        fig.add_vline(
+            x=x_sep, line_width=1.5, line_dash="dot", line_color="#A0AEC0",
+            annotation_text=f"<b>Retorno Cabezal (Fin Paso {p})</b>",
+            annotation_position="top left",
+            annotation_font_size=10,
+            annotation_font_color="#4A5568"
+        )
+
+    colores_paso = ["rgba(237, 242, 247, 0.4)", "rgba(226, 232, 240, 0.2)"]
+    for p in range(pasos):
+        fig.add_vrect(
+            x0=p * L_tubo, x1=(p + 1) * L_tubo,
+            fillcolor=colores_paso[p % 2], layer="below", line_width=0,
+            annotation_text=f"<b>PASO {p+1}</b>", annotation_position="bottom right"
+        )
+
+    fig.update_layout(
+        title="<b>Perfil Térmico Dinámico Multipaso y Agresividad de Película (T_wall)</b><br>"
+              "<i>Muestra el calentamiento asintótico en cada paso por el haz de tubos y evalúa el riesgo de daño térmico</i>",
+        xaxis_title="Recorrido Acumulado a través del Haz de Tubos [m]",
+        yaxis_title="Temperatura Operativa / Metal [°C]",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        template="plotly_white",
+        height=480,
+        margin=dict(l=40, r=40, t=80, b=40)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
 # BARRA LATERAL UNIFICADA (CONTROLES DE PROCESO Y MATERIALES)
@@ -69,7 +175,6 @@ lista_fluidos = [
 f_cal = st.sidebar.selectbox("Fluido Caliente (Proceso) [-]", lista_fluidos, index=0)
 f_frio = st.sidebar.selectbox("Fluido Frío (Servicio Auxiliar) [-]", lista_fluidos[:4], index=0)
 
-# Selector heurístico: define quién circula por tubos o carcasa
 asig_sel = st.sidebar.selectbox(
     "Asignación: ¿Por dónde pasa el Fluido Caliente? [-]",
     ["Por Carcasa (Lado Casco)", "Por Tubos (Lado Tubos)"],
@@ -133,7 +238,6 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
         col3.metric("ΔP Tubos / Casco [bar]", f"{dp_t:.3f} / {dp_s:.3f} bar")
         col4.metric("Margen Térmico [%] (Exceso)", f"{margen_term} %")
 
-        # Guía explicativa para el usuario
         mostrar_guia_margen_termico()
 
         st.divider()
@@ -146,12 +250,13 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
 
         st.divider()
         st.subheader("📑 Memoria Técnica del Dimensionamiento e Hidráulica")
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Dimensionamiento TEMA & Kern",
             "Verificación Convectiva (U Real)",
             "Hidráulica y Caída de Presión ΔP",
             "Diseño Mecánico ASME BPVC (Diseño vs Operación)",
-            "Balance Termodinámico"
+            "Balance Termodinámico",
+            "📈 Perfil Térmico Multipaso & Choque"
         ])
         with tab1:
             st.dataframe(pd.DataFrame(list(res.get("Dimensionamiento TEMA & Kern", {}).items()), columns=["Parámetro TEMA / Kern", "Valor Calculado"]), use_container_width=True, hide_index=True)
@@ -163,6 +268,9 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
             st.dataframe(pd.DataFrame(list(res.get("Diseño Mecánico ASME BPVC", {}).items()), columns=["Parámetro Mecánico ASME", "Especificación / Valor"]), use_container_width=True, hide_index=True)
         with tab5:
             st.dataframe(pd.DataFrame(list(res.get("Termodinámica", {}).items()), columns=["Variable de Proceso", "Valor Operativo"]), use_container_width=True, hide_index=True)
+        with tab6:
+            st.markdown("### Análisis Longitudinal de Severidad Térmica y Película")
+            generar_grafico_perfil_pasos(res)
 
     except ValueError as err_f:
         st.error(f"🚨 **Alerta de Inviabilidad:** {err_f}")
@@ -222,8 +330,23 @@ else:
             st.markdown(f"**Mg Térmico (Exceso):** `{oper.get('Margen [%]', 0)}%`")
             st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
 
-        # Guía explicativa para el usuario
         mostrar_guia_margen_termico()
+
+        st.divider()
+        st.subheader("📈 Análisis y Diagnóstico Dinámico de Película del Modelo Seleccionado")
+        opcion_grafico = st.selectbox(
+            "Seleccione qué modelo del Top 3 desea inspeccionar en detalle:",
+            options=["Económico (Mínimo CAPEX)", "Compacto (Menor Huella)", "Operativo (Máximo Mérito Hidráulico-Económico)"],
+            key="sel_grafico_opt"
+        )
+        if "Económico" in opcion_grafico:
+            res_opt_graf = top_rec["Económico"]["_res_full"]
+        elif "Compacto" in opcion_grafico:
+            res_opt_graf = top_rec["Compacto"]["_res_full"]
+        else:
+            res_opt_graf = top_rec["Operativo"]["_res_full"]
+
+        generar_grafico_perfil_pasos(res_opt_graf)
 
         st.divider()
         st.subheader("📥 Exportar Especificaciones del Equipo Optimizado")

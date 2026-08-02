@@ -1,7 +1,8 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
 # DESCRIPCIÓN: Núcleo termodinámico, hidráulico y mecánico (Kern + ASME BPVC)
-#              con bucle de convergencia iterativo para Margen Térmico real.
+#              con bucle de convergencia iterativo para Margen Térmico real,
+#              crossover ASME de alta presión (>25 bar) y perfiles térmicos.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -74,7 +75,7 @@ def calcular_intercambiador(
     """
     Ejecuta el dimensionamiento y rating convectivo-hidráulico-mecánico de un equipo.
     Implementa un bucle iterativo de convergencia para asegurar un Margen Térmico
-    real (A_instalada vs A_req_real) conforme a normas TEMA / API 660 (+15% a +30%).
+    real (A_instalada vs A_req_real) conforme a normas TEMA / API 660 (+15% a +35%).
     """
     fc_cp = _mapear_fluido_coolprop(fluido_cal_nombre)
     ff_cp = _mapear_fluido_coolprop(fluido_frio_nombre)
@@ -240,7 +241,7 @@ def calcular_intercambiador(
             "Tipo TEMA [-]": tipo_tema,
             "Asignación Lado Carcasa": f"{fluido_str_casco} ({'Caliente' if asignacion_caliente=='Carcasa' else 'Frío'})",
             "Asignación Lado Tubos": f"{fluido_str_tubos} ({'Frío' if asignacion_caliente=='Carcasa' else 'Caliente'})",
-            "Área Requerida Teórica [m²]": round(A_req_real, 2), # Área real exigida por U_calc
+            "Área Requerida Teórica [m²]": round(A_req_real, 2),
             "Área Instalada Real [m²]": round(A_instalada, 2),
             "Diámetro de Casco Ds [mm]": round(Ds_mm, 1),
             "Número de Tubos [uds]": int(N_tubos),
