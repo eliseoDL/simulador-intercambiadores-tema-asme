@@ -200,7 +200,7 @@ def optimizar_intercambiador(
                     try:
                         res = calcular_intercambiador(
                             m_caliente_kg_s=m_cal_kg_s, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out,
-                            P_cal_bar=P_cal_bar, T_frio_in_C=T_frio_in, P_frio_bar=P_frio_bar,
+                            P_cal_bar=P_cal_bar, T_frio_in_C=T_frio_in, P_frio_bar=5.0,
                             tipo_tema=tema, pasos_tubos=pasos, longitud_tubo_m=L,
                             fluido_cal_nombre=f_cal_nombre, fluido_frio_nombre=f_frio_nombre,
                             mat_casco_nombre=mat_casco, mat_tubo_nombre=mat_tubo,
@@ -209,10 +209,13 @@ def optimizar_intercambiador(
                         Ds = res["Dimensionamiento TEMA & Kern"]["Diámetro de Casco Ds [mm]"]
                         esbeltez = L / (Ds / 1000.0)
                         
-                        # Filtro amplio y robusto para capturar un abanico completo de opciones comerciales
-                        if 1.5 <= esbeltez <= 25.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -50.0:
+                        # Filtro extremadamente amplio para capturar todo el abanico comercial disponible
+                        if 1.0 <= esbeltez <= 30.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmico [%]"] >= -80.0:
                             resultados_grid.append({
-                                "TEMA [-]": tema, "OD [mm]": od, "Longitud [m]": L, "Pasos [uds]": pasos,
+                                "TEMA [-]": tema, 
+                                "OD [mm]": od, 
+                                "Longitud [m]": L, 
+                                "Pasos [uds]": pasos,
                                 "Área [m²]": res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"],
                                 "Casco Ds [mm]": Ds,
                                 "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
