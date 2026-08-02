@@ -48,7 +48,6 @@ lista_fluidos = [
 f_cal = st.sidebar.selectbox("Fluido Lado Caliente (Proceso) [-]", lista_fluidos, index=0)
 f_frio = st.sidebar.selectbox("Fluido Lado Frío (Servicio Auxiliar) [-]", lista_fluidos[:4], index=0)
 
-# Mostrar U automático estimado de referencia
 u_ref = estimar_u_automatico(f_cal, f_frio)
 st.sidebar.info(f"💡 **Coeficiente U de Arranque Asignado:** `{u_ref} [W/m²·K]` (Estimado automáticamente por pares fluidos).")
 
@@ -170,7 +169,7 @@ else:
             st.success("💰 **ÓPTIMO ECONÓMICO (Mínimo CAPEX [USD])**")
             st.markdown(f"**Área Instalada [m²]:** `{eco['Área [m²]']} m²` | **TEMA:** `{eco['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{eco['Casco Ds [mm]']} mm` | **Longitud:** `{eco['Longitud [m]']} m`")
-            st.markdown(f"**Tubos [uds]:** `{eco['U Real [W/m²·K]']}` W/m²·K | **Margen:** `{eco['Margen [%]']}%`")
+            st.markdown(f"**U Real [W/m²·K]:** `{eco['U Real [W/m²·K]']}` W/m²·K | **Margen:** `{eco['Margen [%]']}%`")
             st.metric("Inversión Estimada [USD]", f"${eco['CAPEX [USD]']:,.2f} USD", delta="Recomendado EPC")
 
         with col_t2:
@@ -191,7 +190,6 @@ else:
 
         st.divider()
 
-        # Sección Educativa de Ecuaciones Base
         with st.expander("📚 Ver Ecuaciones Base y Criterios de Ingeniería del Optimizador", expanded=False):
             st.markdown("""
             Para calcular y filtrar las opciones, el motor evalúa:

@@ -48,16 +48,12 @@ def estimar_u_automatico(f_cal: str, f_frio: str) -> float:
     fc = _mapear_fluido_coolprop(f_cal)
     ff = _mapear_fluido_coolprop(f_frio)
     
-    # Gas - Líquido
     if fc in ["Air", "Methane", "CO2"] or ff in ["Air", "Methane", "CO2"]:
         return 150.0
-    # Amoníaco involucrado
     elif "Ammonia" in [fc, ff]:
         return 1100.0
-    # Orgánicos / Hidrocarburos
     elif fc in ["Ethanol", "Propane", "Benzene", "Toluene"] or ff in ["Ethanol", "Propane", "Benzene", "Toluene"]:
         return 650.0
-    # Agua - Agua por defecto
     else:
         return 1000.0
 
@@ -67,7 +63,6 @@ def calcular_intercambiador(
     longitud_tubo_m: float, fluido_cal_nombre: str, fluido_frio_nombre: str,
     mat_casco_nombre: str, mat_tubo_nombre: str, U_estimado: float = None
 ):
-    # 1. Mapeo y validaciones termodinámicas
     fc_cp = _mapear_fluido_coolprop(fluido_cal_nombre)
     ff_cp = _mapear_fluido_coolprop(fluido_frio_nombre)
 
@@ -76,7 +71,6 @@ def calcular_intercambiador(
     if T_cal_in_C <= T_cal_out_C:
         raise ValueError("La temperatura de entrada del caliente debe ser mayor que su salida.")
 
-    # Si no se provee U_estimado, se calcula automáticamente
     if U_estimado is None or U_estimado <= 0:
         U_estimado = estimar_u_automatico(fluido_cal_nombre, fluido_frio_nombre)
 
@@ -86,7 +80,6 @@ def calcular_intercambiador(
     T_cal_out_K = T_cal_out_C + 273.15
     T_frio_in_K = T_frio_in_C + 273.15
 
-    # Propiedades fluido caliente (Media)
     T_cal_med_K = (T_cal_in_K + T_cal_out_K) / 2.0
     cp_cal = CP.PropsSI('C', 'T', T_cal_med_K, 'P', P_cal_Pa, fc_cp)
     rho_cal = CP.PropsSI('D', 'T', T_cal_med_K, 'P', P_cal_Pa, fc_cp)
@@ -96,58 +89,49 @@ def calcular_intercambiador(
 
     Q_w = m_caliente_kg_s * cp_cal * (T_cal_in_C - T_cal_out_C)
 
-    # Balance fluido frío
-    T_frio_med_K = T_frio_in_K + 15.0 # Estimación preliminar
+    T_frio_med_K = T_frio_in_K + 15.0
     cp_frio = CP.PropsSI('C', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     rho_frio = CP.PropsSI('D', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     mu_frio = CP.PropsSI('V', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     k_frio = CP.PropsSI('L', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     pr_frio = CP.PropsSI('Prandtl', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
 
-    m_frio_kg_s = Q_w / (cp_frio * (T_cal_in_C - T_cal_out_C) * 0.75) # Coeficiente provisorio
+    m_frio_kg_s = Q_w / (cp_frio * (T_cal_in_C - T_cal_out_C) * 0.75)
     T_frio_out_C = T_frio_in_C + Q_w / (m_frio_kg_s * cp_frio)
 
-    # LMTD
     dT1 = T_cal_in_C - T_frio_out_C
     dT2 = T_cal_out_C - T_frio_in_C
     if dT1 <= 0 or dT2 <= 0:
         raise ValueError("Cruce térmico detectado en los extremos del intercambiador.")
     lmtd = (dT1 - dT2) / np.log(dT1 / dT2)
-    Ft = 0.90 # Factor de corrección típico multipaso
+    Ft = 0.90
     dT_m = lmtd * Ft
 
-    # Área requerida preliminar
     A_req = Q_w / (U_estimado * dT_m)
 
-    # Geometría TEMA y Kern preliminar
-    OD_tubo_m = 0.0254 # 1 pulgada por defecto
+    OD_tubo_m = 0.0254
     ID_tubo_m = 0.0221
     at = (np.pi / 4.0) * (ID_tubo_m ** 2)
     
-    # Número de tubos estimado
     area_tubo_unitaria = np.pi * OD_tubo_m * longitud_tubo_m
     N_tubos = int(np.ceil(A_req / area_tubo_unitaria))
     
-    # Diámetro de carcasa aproximado (K1, n1 para arreglo triangular 1.25 OD)
     K1 = 0.249
     n1 = 2.207
     Ds_m = OD_tubo_m * ((N_tubos / K1) ** (1.0 / n1))
     Ds_mm = max(200.0, Ds_m * 1000.0)
 
-    # Rating Kern: Coeficientes Convectivos Reales
     v_tubos = (m_frio_kg_s / rho_frio) / max(1.0, (N_tubos / pasos_tubos) * at)
     Re_i = (rho_frio * v_tubos * ID_tubo_m) / mu_frio
     Nu_i = 0.023 * (Re_i ** 0.8) * (pr_frio ** (1.0/3.0))
     h_i = (Nu_i * k_frio) / ID_tubo_m
 
-    # Lado casco simplificado (Kern)
-    De = 0.015 # Diámetro equivalente promedio [m]
-    v_casco = (m_caliente_kg_s / rho_cal) / (Ds_m * 0.05) # holgura de bafles
+    De = 0.015
+    v_casco = (m_caliente_kg_s / rho_cal) / (Ds_m * 0.05)
     Re_o = (rho_cal * v_casco * De) / mu_cal
     Nu_o = 0.36 * (Re_o ** 0.55) * (pr_cal ** (1.0/3.0))
     h_o = (Nu_o * k_cal) / De
 
-    # Resistencias térmicas y U real
     k_metal = CATALOGO_MATERIALES_TUBOS[mat_tubo_nombre]["k"]
     R_fouling = 0.0003
     r_fo = OD_tubo_m / ID_tubo_m
@@ -158,16 +142,13 @@ def calcular_intercambiador(
     A_instalada = N_tubos * area_tubo_unitaria
     margen_termico = ((U_calc - U_estimado) / U_estimado) * 100.0
 
-    # Diseño Mecánico ASME BPVC Sec VIII Div 1
     sigma_adm = CATALOGO_MATERIALES_CASCO[mat_casco_nombre]["sigma_adm_MPa"] * 1e6
-    P_dis_Pa = P_cal_Pa * 1.10 # 10% sobrepresión
-    t_min_casco = (P_dis_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_Pa) + 0.003 # Corrosión allowance 3mm
+    P_dis_Pa = P_cal_Pa * 1.10
+    t_min_casco = (P_dis_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_Pa) + 0.003
     t_min_casco_mm = max(6.35, t_min_casco * 1000.0)
 
-    # CAPEX Estimado (Sinnott Cap 6)
     capex = 10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_cal_bar / 50.0) ** 1.2))
 
-    # Perfil gráfico
     z_vals = np.linspace(0, longitud_tubo_m, 10)
     T_cal_perfil = T_cal_in_C - (T_cal_in_C - T_cal_out_C) * (z_vals / longitud_tubo_m)
     T_frio_perfil = T_frio_in_C + (T_frio_out_C - T_frio_in_C) * (z_vals / longitud_tubo_m)
@@ -229,17 +210,12 @@ def optimizar_intercambiador(
                             mat_casco_nombre=mat_casco, mat_tubo_nombre=mat_tubo,
                             U_estimado=U_auto_base
                         )
-                        
                         Ds = res["Dimensionamiento TEMA & Kern"]["Diámetro de Casco Ds [mm]"]
                         esbeltez = L / (Ds / 1000.0)
                         
-                        # Filtro de esbeltez industrial 3 <= L/Ds <= 12 y margen positivo
                         if 3.0 <= esbeltez <= 12.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -5.0:
                             resultados_grid.append({
-                                "TEMA [-]": tema,
-                                "OD [mm]": od,
-                                "Longitud [m]": L,
-                                "Pasos [uds]": pasos,
+                                "TEMA [-]": tema, "OD [mm]": od, "Longitud [m]": L, "Pasos [uds]": pasos,
                                 "Área [m²]": res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"],
                                 "Casco Ds [mm]": Ds,
                                 "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
@@ -255,15 +231,9 @@ def optimizar_intercambiador(
         raise ValueError("No se encontraron diseños factibles con los parámetros actuales en el catálogo comercial.")
 
     df = pd.DataFrame(resultados_grid)
-    
-    idx_eco = df["CAPEX [USD]"].idxmin()
-    idx_comp = df["Área [m²]"].idxmin()
-    idx_oper = df["Margen [%]"].idxmax()
-
     top_rec = {
-        "Económico": df.loc[idx_eco].to_dict(),
-        "Compacto": df.loc[idx_comp].to_dict(),
-        "Operativo": df.loc[idx_oper].to_dict()
+        "Económico": df.loc[df["CAPEX [USD]"].idxmin()].to_dict(),
+        "Compacto": df.loc[df["Área [m²]"].idxmin()].to_dict(),
+        "Operativo": df.loc[df["Margen [%]"].idxmax()].to_dict()
     }
-
     return df, top_rec
