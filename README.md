@@ -65,7 +65,7 @@ El software permite descargar en un clic la especificación del equipo diseñado
 
 ---
 
-## 🚀 Demo en Vivo
+## APP STREAMLIT
 
 > **🔗 [Ejecutar App Interactiva en Streamlit Community Cloud](https://simulador-intercambiadores-tema-asme-q97fjg4w7y49xnmnxnghcx.streamlit.app/)**  
 > *(Nota: Reemplaza este enlace al desplegar tu app en la nube).*
