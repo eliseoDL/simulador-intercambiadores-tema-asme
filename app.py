@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit blindada con .get() contra errores de clave.
+# DESCRIPCIÓN: Interfaz Streamlit con formateo explícito de 3 decimales para ΔP.
 # ==============================================================================
 
 import streamlit as st
@@ -20,7 +20,7 @@ st.set_page_config(
 
 st.title("🔄 Simulador y Optimizador de Intercambiadores de Casco y Tubos (TEMA / ASME)")
 st.markdown(
-    "**Motor termodinámico e hidráulico (`CoolProp`), Método de Kern (Sinnott Cap. 12) con cálculo de caídas de presión ($\Delta P$) y diseño mecánico ASME BPVC.**"
+    "**Motor termodinámico e hidráulico (`CoolProp`), Método de Kern (Sinnott Cap. 12) con cálculo riguroso de caídas de presión ($\Delta P$) en tubos y casco.**"
 )
 
 # ==============================================================================
@@ -88,14 +88,14 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
         u_real = res.get("Verificación Convectiva (Rating Kern)", {}).get("Coef. Global REAL U_calc [W/m²·K]", "N/A")
         
         hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
-        dp_t = hidro.get("Caída Presión Tubos ΔPt [bar]", "0.0")
-        dp_s = hidro.get("Caída Presión Casco ΔPs [bar]", "0.0")
+        dp_t = hidro.get("Caída Presión Tubos ΔPt [bar]", 0.01)
+        dp_s = hidro.get("Caída Presión Casco ΔPs [bar]", 0.01)
         
         margen_term = res.get("Verificación Convectiva (Rating Kern)", {}).get("Margen Seguridad Térmica [%]", "0.0")
 
         col1.metric("Área TEMA Instalada [m²]", f"{area_inst} m²")
         col2.metric("U REAL Calculado (Kern)", f"{u_real} W/m²·K")
-        col3.metric("ΔP Tubos / Casco [bar]", f"{dp_t} / {dp_s} bar")
+        col3.metric("ΔP Tubos / Casco [bar]", f"{dp_t:.3f} / {dp_s:.3f} bar") # Muestra 3 decimales
         col4.metric("Margen Térmico [%]", f"{margen_term} %")
 
         st.divider()
@@ -153,9 +153,9 @@ else:
             st.markdown(f"**TEMA:** `{eco.get('TEMA [-]', 'BEM')}` | **Área:** `{eco.get('Área [m²]', 0)} m²`")
             st.markdown(f"**Casco Ds:** `{eco.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{eco.get('Longitud [m]', 0)} m`")
             st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{eco.get('T Frío Salida [°C]', 0)}°C`")
-            dp_tub_eco = eco.get("ΔP Tubos [bar]", "0.0")
-            dp_cas_eco = eco.get("ΔP Casco [bar]", "0.0")
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_tub_eco}` / `{dp_cas_eco} bar`")
+            dp_t_eco = float(eco.get("ΔP Tubos [bar]", 0.01))
+            dp_s_eco = float(eco.get("ΔP Casco [bar]", 0.01))
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_eco:.3f}` / `{dp_s_eco:.3f} bar`")
             st.metric("Inversión Estimada", f"${eco.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t2:
@@ -164,9 +164,9 @@ else:
             st.markdown(f"**TEMA:** `{comp.get('TEMA [-]', 'BEM')}` | **Área:** `{comp.get('Área [m²]', 0)} m²`")
             st.markdown(f"**Casco Ds:** `{comp.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{comp.get('Longitud [m]', 0)} m`")
             st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{comp.get('T Frío Salida [°C]', 0)}°C`")
-            dp_tub_comp = comp.get("ΔP Tubos [bar]", "0.0")
-            dp_cas_comp = comp.get("ΔP Casco [bar]", "0.0")
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_tub_comp}` / `{dp_cas_comp} bar`")
+            dp_t_comp = float(comp.get("ΔP Tubos [bar]", 0.01))
+            dp_s_comp = float(comp.get("ΔP Casco [bar]", 0.01))
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_comp:.3f}` / `{dp_s_comp:.3f} bar`")
             st.metric("Inversión Estimada", f"${comp.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t3:
@@ -175,9 +175,9 @@ else:
             st.markdown(f"**TEMA:** `{oper.get('TEMA [-]', 'BEM')}` | **Área:** `{oper.get('Área [m²]', 0)} m²`")
             st.markdown(f"**Casco Ds:** `{oper.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{oper.get('Longitud [m]', 0)} m`")
             st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{oper.get('T Frío Salida [°C]', 0)}°C`")
-            dp_tub_oper = oper.get("ΔP Tubos [bar]", "0.0")
-            dp_cas_oper = oper.get("ΔP Casco [bar]", "0.0")
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_tub_oper}` / `{dp_cas_oper} bar`")
+            dp_t_oper = float(oper.get("ΔP Tubos [bar]", 0.01))
+            dp_s_oper = float(oper.get("ΔP Casco [bar]", 0.01))
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_oper:.3f}` / `{dp_s_oper:.3f} bar`")
             st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
 
         st.divider()

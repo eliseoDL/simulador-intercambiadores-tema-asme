@@ -1,7 +1,7 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
 # DESCRIPCIÓN: Núcleo termodinámico e hidráulico con pérdida de carga Kern (ΔP)
-#              y optimización multicriterio blindada contra KeyError.
+#              precisa en tubos (fricción + cabezales) y optimización API 660.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -118,17 +118,23 @@ def calcular_intercambiador(
     Ds_m = OD_tubo_m * ((N_tubos / K1) ** (1.0 / n1))
     Ds_mm = max(200.0, Ds_m * 1000.0)
 
-    # Hidráulica Tubos
+    # --------------------------------------------------------------------------
+    # 1. HIDRÁULICA Y CAÍDA DE PRESIÓN EN TUBOS (Sinnott Eq. 12.19)
+    # --------------------------------------------------------------------------
     v_tubos = (m_frio_kg_s / rho_frio) / max(1.0, (N_tubos / pasos_tubos) * at)
     Re_i = (rho_frio * v_tubos * ID_tubo_m) / mu_frio
     Nu_i = 0.023 * (Re_i ** 0.8) * (pr_frio ** (1.0/3.0))
     h_i = (Nu_i * k_frio) / ID_tubo_m
 
-    f_tubo = max(0.001, 0.046 * (Re_i ** -0.2))
-    dP_tubos_Pa = pasos_tubos * (8.0 * f_tubo * (longitud_tubo_m / ID_tubo_m) + 2.5) * (rho_frio * (v_tubos ** 2) / 2.0)
+    # Factor de fricción en tubos rugosos comerciales + pérdidas por retornos de cabezales (2.5 a 4 cabezales por paso)
+    f_tubo = max(0.0035, 0.046 * (Re_i ** -0.2))
+    factor_cabezales = 2.5 if pasos_tubos == 1 else 4.0
+    dP_tubos_Pa = pasos_tubos * (8.0 * f_tubo * (longitud_tubo_m / ID_tubo_m) + factor_cabezales) * (rho_frio * (v_tubos ** 2) / 2.0)
     dP_tubos_bar = dP_tubos_Pa / 1e5
 
-    # Hidráulica Casco
+    # --------------------------------------------------------------------------
+    # 2. HIDRÁULICA Y CAÍDA DE PRESIÓN EN CASCO (Sinnott Eq. 12.26)
+    # --------------------------------------------------------------------------
     De = 0.015
     v_casco = (m_caliente_kg_s / rho_cal) / (Ds_m * 0.05)
     Re_o = (rho_cal * v_casco * De) / mu_cal
@@ -155,9 +161,9 @@ def calcular_intercambiador(
     t_min_casco = (P_dis_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_Pa) + 0.003
     t_min_casco_mm = max(6.35, t_min_casco * 1000.0)
 
-    factores_tema = {"BEM": 1.00, "AEM": 1.05, "AES": 1.20, "BEU": 1.12}
-    factor_tema_costo = factores_tema.get(tipo_tema, 1.0)
-    capex = (10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_cal_bar / 50.0) ** 1.2))) * factor_tema_costo
+    factores_tema_capex = {"BEM": 1.00, "AEM": 1.05, "BEU": 1.12, "AES": 1.20}
+    factor_capex = factores_tema_capex.get(tipo_tema, 1.0)
+    capex = (10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_cal_bar / 50.0) ** 1.2))) * factor_capex
 
     z_vals = np.linspace(0, longitud_tubo_m, 10)
     T_cal_perfil = T_cal_in_C - (T_cal_in_C - T_cal_out_C) * (z_vals / longitud_tubo_m)
@@ -182,9 +188,9 @@ def calcular_intercambiador(
         },
         "Hidráulica y Caída de Presión (Kern)": {
             "Velocidad Tubos vt [m/s]": round(v_tubos, 2),
-            "Caída Presión Tubos ΔPt [bar]": round(dP_tubos_bar, 3),
+            "Caída Presión Tubos ΔPt [bar]": round(dP_tubos_bar, 3), # Garantiza 3 decimales
             "Velocidad Casco vs [m/s]": round(v_casco, 2),
-            "Caída Presión Casco ΔPs [bar]": round(dP_casco_bar, 3)
+            "Caída Presión Casco ΔPs [bar]": round(dP_casco_bar, 3)  # Garantiza 3 decimales
         },
         "Diseño Mecánico ASME BPVC": {
             "Material Carcasa [-]": mat_casco_nombre,
@@ -216,6 +222,9 @@ def optimizar_intercambiador(
     resultados_backup = []
     U_auto_base = estimar_u_automatico(f_cal_nombre, f_frio_nombre)
 
+    # Factores de Mantenibilidad y Riesgo de Ciclo de Vida (API 660 / Sinnott)
+    factores_confiabilidad_api660 = {"AES": 0.82, "BEU": 0.88, "AEM": 0.95, "BEM": 1.10}
+
     for od in CATALOGO_TUBOS_OD:
         for L in CATALOGO_LONGITUDES:
             for pasos in CATALOGO_PASOS:
@@ -236,12 +245,15 @@ def optimizar_intercambiador(
                         area = res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"]
                         
                         hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
-                        dP_tub = hidro.get("Caída Presión Tubos ΔPt [bar]", 0.1)
-                        dP_cas = hidro.get("Caída Presión Casco ΔPs [bar]", 0.1)
+                        dP_tub = hidro.get("Caída Presión Tubos ΔPt [bar]", 0.01)
+                        dP_cas = hidro.get("Caída Presión Casco ΔPs [bar]", 0.01)
                         
+                        # Índice de Mérito API 660 / TCO LIFECYCLE
                         penalizacion_dP = (1.0 + max(0.0, (dP_tub - 0.5) * 3.0)) * (1.0 + max(0.0, (dP_cas - 0.5) * 3.0))
+                        factor_riesgo_tema = factores_confiabilidad_api660.get(tema, 1.0)
                         factor_penalizacion_margen = max(0.1, 1.0 + (margen / 100.0))
-                        indice_merito = (capex * penalizacion_dP) / (area * factor_penalizacion_margen)
+                        
+                        indice_merito_api = (capex * penalizacion_dP * factor_riesgo_tema) / (area * factor_penalizacion_margen)
 
                         item_dict = {
                             "TEMA [-]": tema, 
@@ -252,11 +264,11 @@ def optimizar_intercambiador(
                             "Casco Ds [mm]": Ds,
                             "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
                             "Margen [%]": margen,
-                            "ΔP Tubos [bar]": dP_tub,
-                            "ΔP Casco [bar]": dP_cas,
+                            "ΔP Tubos [bar]": round(dP_tub, 3), # Precisión 3 decimales
+                            "ΔP Casco [bar]": round(dP_cas, 3), # Precisión 3 decimales
                             "Ft [-]": res["Termodinámica"]["Factor Ft [-]"],
                             "CAPEX [USD]": capex,
-                            "Índice de Mérito": indice_merito,
+                            "Índice de Mérito": indice_merito_api,
                             "T Frío Salida [°C]": res["Termodinámica"]["Temperatura Salida Frío [°C]"],
                             "_res_full": res
                         }
