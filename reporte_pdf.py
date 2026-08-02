@@ -1,154 +1,135 @@
 # ==============================================================================
 # ARCHIVO: reporte_pdf.py
-# DESCRIPCIÓN: Módulo de generación de reportes técnicos inmutables en PDF,
-#              con claves unificadas en formato de corchetes [...].
+# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF utilizando ReportLab,
+#              con diseño técnico normalizado TEMA / ASME.
 # ==============================================================================
 
 import io
-import datetime
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-
-def generar_pdf_hoja_datos(res_dict, meta_dict=None):
-    if meta_dict is None:
-        meta_dict = {}
-
+def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer, pagesize=A4,
-        rightMargin=0.5 * inch, leftMargin=0.5 * inch,
-        topMargin=0.4 * inch, bottomMargin=0.4 * inch
+        buffer,
+        pagesize=letter,
+        rightMargin=36, leftMargin=36,
+        topMargin=36, bottomMargin=36
     )
     
-    elementos = []
+    story = []
     styles = getSampleStyleSheet()
     
-    titulo_style = ParagraphStyle(
-        'TituloDataSheet', parent=styles['Heading1'],
-        fontSize=11.5, leading=14, textColor=colors.HexColor("#0F2942"),
-        fontName="Helvetica-Bold", alignment=1
+    # Estilos personalizados
+    estilo_titulo = ParagraphStyle(
+        'TituloHoja',
+        parent=styles['Heading1'],
+        fontSize=14,
+        leading=18,
+        textColor=colors.HexColor('#1A365D'),
+        alignment=1, # Centrado
+        spaceAfter=4
     )
-    texto_celda = ParagraphStyle('TxtC', fontSize=7.2, leading=9.5, fontName="Helvetica", textColor=colors.HexColor("#1A202C"))
-    texto_bold = ParagraphStyle('TxtB', fontSize=7.2, leading=9.5, fontName="Helvetica-Bold", textColor=colors.HexColor("#1A202C"))
-    texto_head_sec = ParagraphStyle('HeadSec', fontSize=7.8, leading=10.5, fontName="Helvetica-Bold", textColor=colors.HexColor("#FFFFFF"))
+    
+    estilo_sub = ParagraphStyle(
+        'SubHoja',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#4A5568'),
+        alignment=1,
+        spaceAfter=12
+    )
+    
+    estilo_celda = ParagraphStyle(
+        'TextoCelda',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor('#2D3748')
+    )
+    
+    estilo_celda_bold = ParagraphStyle(
+        'TextoCeldaBold',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=10,
+        fontName='Helvetica-Bold',
+        textColor=colors.HexColor('#1A365D')
+    )
 
-    fecha_hoy = datetime.date.today().strftime("%d/%m/%Y")
-    tag_str = meta_dict.get("tag", "HEX-0100")
-    proy_str = meta_dict.get("proyecto", "PROYECTO GENERAL")
-    rev_str = meta_dict.get("revision", "0 - EMISIÓN INICIAL")
+    # Encabezado del documento
+    story.append(Paragraph("<b>HOJA DE DATOS TÉCNICOS — INTERCAMBIADOR DE CALOR</b>", estilo_titulo))
+    story.append(Paragraph(f"Normas de Diseño: TEMA & ASME BPVC Sec. VIII Div. 1 | Proyecto: {meta.get('proyecto', 'GENERAL')} | TAG: {meta.get('tag', 'HEX-0100')}", estilo_sub))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1A365D'), spaceBefore=0, spaceAfter=10))
 
-    header_data = [
-        [
-            Paragraph("<b>TEMA EQUIPMENT DATA SHEET</b><br/>HOJA DE ESPECIFICACIÓN TÉCNICA - INTERCAMBIADOR", titulo_style),
-            Paragraph(f"<b>TAG NO [-]:</b> {tag_str}<br/><b>REV [-]:</b> {rev_str}<br/><b>PÁG [-]:</b> 1 de 1", texto_celda)
-        ],
-        [
-            Paragraph(f"<b>TIPO TEMA [-]:</b> {res_dict['Dimensionamiento TEMA & Kern']['Clasificación TEMA [-]']} | <b>PROYECTO [-]:</b> {proy_str}", texto_bold),
-            Paragraph(f"<b>FECHA [-]:</b> {fecha_hoy}<br/><b>ESTÁNDAR [-]:</b> TEMA / ASME VIII", texto_celda)
-        ]
+    # Extraer bloques del resultado
+    d_tema = res.get("Dimensionamiento TEMA & Kern", {})
+    d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
+    d_asme = res.get("Diseño Mecánico ASME BPVC", {})
+    d_termo = res.get("Termodinámica", {})
+
+    # Armar la tabla de datos técnicos unificada
+    datos_tabla = [
+        [Paragraph("<b>PARÁMETRO / ESPECIFICACIÓN TÉCNICA</b>", estilo_celda_bold), Paragraph("<b>VALOR OPERATIVO / GEOMÉTRICO</b>", estilo_celda_bold)]
     ]
-    tabla_header = Table(header_data, colWidths=[5.3 * inch, 1.9 * inch])
-    tabla_header.setStyle(TableStyle([
-        ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor("#0F2942")),
-        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#A0AEC0")),
+
+    bloques = [
+        ("--- DIMENSIONAMIENTO TEMA & KERN ---", [
+            ("Tipo TEMA", d_tema.get("Tipo TEMA [-]")),
+            ("Área Requerida Teórica [m²]", d_tema.get("Área Requerida Teórica [m²]")),
+            ("Área Instalada Real [m²]", d_tema.get("Área Instalada Real [m²]")),
+            ("Diámetro de Casco Ds [mm]", d_tema.get("Diámetro de Casco Ds [mm]")),
+            ("Número de Tubos [uds]", d_tema.get("Número de Tubos [uds]")),
+            ("Longitud del Tubo [m]", d_tema.get("Longitud del Tubo [m]")),
+            ("Pasos por Tubos [uds]", d_tema.get("Pasos por Tubos [uds]"))
+        ]),
+        ("--- VERIFICACIÓN CONVECTIVA (RATING KERN) ---", [
+            ("Coef. Global Estimado U_trial [W/m²·K]", d_rating.get("Coef. Global Estimado U_trial [W/m²·K]")),
+            ("Coef. Global REAL U_calc [W/m²·K]", d_rating.get("Coef. Global REAL U_calc [W/m²·K]")),
+            ("Margen de Seguridad Térmica [%]", d_rating.get("Margen Seguridad Térmica [%]")),
+            ("Coeficiente Película Tubos hi [W/m²·K]", d_rating.get("Coeficiente Película Tubos hi [W/m²·K]")),
+            ("Coeficiente Película Casco ho [W/m²·K]", d_rating.get("Coeficiente Película Casco ho [W/m²·K]"))
+        ]),
+        ("--- DISEÑO MECÁNICO ASME BPVC ---", [
+            ("Material Carcasa", d_asme.get("Material Carcasa [-]")),
+            ("Material Tubos", d_asme.get("Material Tubos [-]")),
+            ("Espesor Mínimo Casco t_min [mm]", d_asme.get("Espesor Mínimo Casco t_min [mm]")),
+            ("Presión de Diseño [bar]", d_asme.get("Presión de Diseño [bar]")),
+            ("CAPEX Estimado [USD]", d_asme.get("CAPEX Estimado [USD]"))
+        ]),
+        ("--- BALANCE TERMODINÁMICO ---", [
+            ("Carga Térmica Q [kW]", d_termo.get("Carga Térmica Q [kW]")),
+            ("Temperatura Salida Frío [°C]", d_termo.get("Temperatura Salida Frío [°C]")),
+            ("LMTD Corregida [°C]", d_termo.get("LMTD Corregida [°C]")),
+            ("Factor Ft", d_termo.get("Factor Ft [-]"))
+        ])
+    ]
+
+    for titulo_seccion, items in bloques:
+        # Fila de sección
+        datos_tabla.append([Paragraph(f"<b>{titulo_seccion}</b>", estilo_celda_bold), Paragraph("", estilo_celda)])
+        for k, v in items:
+            datos_tabla.append([Paragraph(str(k), estilo_celda), Paragraph(str(v), estilo_celda)])
+
+    tabla_pdf = Table(datos_tabla, colWidths=[280, 260])
+    tabla_pdf.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EDF2F7')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F7FAFC")),
-        ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6), ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E0')),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ]))
-    elementos.append(tabla_header)
-    elementos.append(Spacer(1, 6))
 
-    def crear_bloque_seccion(titulo_seccion, filas_datos):
-        tabla_datos = [[Paragraph(f"<b>{titulo_seccion.upper()}</b>", texto_head_sec), ""]]
-        for k1, v1, k2, v2 in filas_datos:
-            tabla_datos.append([
-                Paragraph(f"<b>{k1}:</b>", texto_bold), Paragraph(str(v1), texto_celda),
-                Paragraph(f"<b>{k2}:</b>", texto_bold) if k2 else "", Paragraph(str(v2), texto_celda) if v2 else ""
-            ])
-        t = Table(tabla_datos, colWidths=[2.25 * inch, 1.35 * inch, 2.25 * inch, 1.35 * inch])
-        t.setStyle(TableStyle([
-            ('SPAN', (0, 0), (3, 0)),
-            ('BACKGROUND', (0, 0), (3, 0), colors.HexColor("#1A365D")),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('BOX', (0, 0), (-1, -1), 1.0, colors.HexColor("#2D3748")),
-            ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-            ('TOPPADDING', (0, 0), (-1, -1), 2.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 2.5),
-            ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor("#EDF2F7")),
-            ('BACKGROUND', (2, 1), (2, -1), colors.HexColor("#EDF2F7")),
-        ]))
-        return t
+    story.append(tabla_pdf)
+    
+    # Pie de página / metadatos
+    story.append(Spacer(1, 15))
+    story.append(Paragraph(f"<b>Revisión:</b> {meta.get('revision', '0')} | <b>Calculado por:</b> {meta.get('calculado_por', 'E. Livingston')} | <i>Generado desde Simulador TEMA/ASME</i>", estilo_sub))
 
-    # 1. TERMODINÁMICA
-    t = res_dict["Termodinámica"]
-    f_termo = [
-        ("Carga Térmica Total [kW]", t["Carga Térmica Total [kW]"], "LMTD Contracorriente [°C]", t["LMTD Contracorriente [°C]"]),
-        ("Caudal Proceso Lado Caliente [kg/s]", t["Caudal Fluido Proceso [kg/s]"], "Caudal Servicio Auxiliar [kg/s]", t["Caudal Servicio Auxiliar [kg/s]"]),
-        ("Temp. Entrada Caliente [°C]", t["Temp. Entrada Caliente [°C]"], "Temp. Salida Caliente [°C]", t["Temp. Salida Caliente [°C]"]),
-        ("Temp. Entrada Frío [°C]", t["Temp. Entrada Frío [°C]"], "Temp. Salida Frío [°C]", t["Temp. Salida Frío [°C]"]),
-        ("Factor Corrección Ft [-]", t["Factor Corrección Ft [-]"], "LMTD Efectiva Real [°C]", t["LMTD Efectiva [°C]"])
-    ]
-    elementos.append(crear_bloque_seccion("1. Condiciones Operativas y Balance Térmico (CoolProp / IF97)", f_termo))
-    elementos.append(Spacer(1, 5))
-
-    # 2. GEOMETRÍA TEMA
-    d = res_dict["Dimensionamiento TEMA & Kern"]
-    f_tema = [
-        ("Clasificación Normativa TEMA [-]", d["Clasificación TEMA [-]"], "Pasos por Tubo [uds]", d["Pasos por Tubo [uds]"]),
-        ("Área Requerida Teórica [m²]", d["Área Requerida Teórica [m²]"], "Área Instalada Real [m²]", d["Área Instalada Real [m²]"]),
-        ("Número Total de Tubos [uds]", d["Número Total de Tubos [uds]"], "Diámetro Exterior Tubo OD [mm]", d["Diámetro Ext. Tubo OD [mm]"]),
-        ("Diámetro Interno Casco Ds [mm]", d["Diámetro Interno Casco Ds [mm]"], "Longitud Nominal Tubos [m]", d["Longitud Nominal Tubo [m]"]),
-        ("Espaciado de Bafles B [mm]", d["Espaciado de Bafles B [mm]"], "Número de Bafles [uds]", d["Número de Bafles [uds]"])
-    ]
-    elementos.append(crear_bloque_seccion("2. Dimensionamiento Geométrico (Sinnott Cap. 12 / Método de Kern)", f_tema))
-    elementos.append(Spacer(1, 5))
-
-    # 3. VERIFICACIÓN CONVECTIVA
-    r = res_dict["Verificación Convectiva (Rating Kern)"]
-    f_rating = [
-        ("Coef. Estimado de Prueba U_trial [W/m²·K]", r["Coef. Global Estimado U_trial [W/m²·K]"], "Coef. Convectivo Casco h_o [W/m²·K]", r["Coef. Convectivo Casco h_o [W/m²·K]"]),
-        ("Coef. Convectivo Tubos h_i [W/m²·K]", r["Coef. Convectivo Tubos h_i [W/m²·K]"], "Coef. Global REAL U_calc [W/m²·K]", r["Coef. Global REAL U_calc [W/m²·K]"]),
-        ("Margen Seguridad Térmica [%]", f'{r["Margen Seguridad Térmica [%]"]} %', "Ensuciamiento Normado Rf [m²·K/W]", r["Resistencia Ensuciamiento Rf [m²·K/W]"])
-    ]
-    elementos.append(crear_bloque_seccion("3. Verificación Convectiva y Sizing vs. Rating (Sinnott Cap. 12.9)", f_rating))
-    elementos.append(Spacer(1, 5))
-
-    # 4. MECÁNICA ASME BPVC VIII & MATERIALES
-    m = res_dict["Diseño Mecánico ASME BPVC"]
-    f_mech = [
-        ("Código Diseño Mecánico [-]", "ASME BPVC Sec. VIII Div. 1", "Presión Diseño ASME [bar]", m["Presión Diseño ASME [bar]"]),
-        ("Material Carcasa / Casco [-]", m["Material Carcasa [-]"], "Material de los Tubos [-]", m["Material Tubos [-]"]),
-        ("Tensión Adm. Carcasa S [MPa]", m["Tensión Adm. Carcasa S [MPa]"], "Tensión Adm. Tubos S [MPa]", m["Tensión Adm. Tubos S [MPa]"]),
-        ("Conductividad Tubo k [W/m·K]", m["Conductividad Tubo k [W/m·K]"], "Sobreespesor Corrosión [mm]", m["Sobreespesor Corrosión [mm]"]),
-        ("Espesor Comercial Casco [mm]", m["Espesor Casco Comercial [mm]"], "Espesor Tubos BWG [mm]", m["Espesor Tubo Comercial BWG [mm]"]),
-        ("Inversión CAPEX [USD]", f"${m['CAPEX Estimado [USD]']:,.2f}", "Metodología CAPEX [-]", "Sinnott Cap. 6 (Class 4/5)")
-    ]
-    elementos.append(crear_bloque_seccion("4. Diseño Mecánico, Materiales y Presupuesto Económico (ASME VIII / Sinnott Cap. 6)", f_mech))
-    elementos.append(Spacer(1, 8))
-
-    # 5. FIRMAS
-    c_str = meta_dict.get("calculado_por", "E. Livingston")
-    r_str = meta_dict.get("revisado_por", "____________________")
-    a_str = meta_dict.get("aprobado_por", "____________________")
-    df_firma = [[
-        Paragraph(f"<b>CALCULADO POR [-]:</b><br/>{c_str}", texto_celda),
-        Paragraph(f"<b>REVISADO POR [-]:</b><br/>{r_str}", texto_celda),
-        Paragraph(f"<b>APROBADO POR [-]:</b><br/>{a_str}", texto_celda)
-    ]]
-    t_firma = Table(df_firma, colWidths=[2.4 * inch, 2.4 * inch, 2.4 * inch])
-    t_firma.setStyle(TableStyle([
-        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#718096")),
-        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
-        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F7FAFC"))
-    ]))
-    elementos.append(t_firma)
-
-    doc.build(elementos)
+    doc.build(story)
     buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
