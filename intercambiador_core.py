@@ -1,7 +1,7 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
 # DESCRIPCIÓN: Núcleo termodinámico e hidráulico con pérdida de carga Kern (ΔP)
-#              y optimización multicriterio estilo HTRI / Aspen EDR.
+#              y optimización multicriterio blindada contra KeyError.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -118,25 +118,23 @@ def calcular_intercambiador(
     Ds_m = OD_tubo_m * ((N_tubos / K1) ** (1.0 / n1))
     Ds_mm = max(200.0, Ds_m * 1000.0)
 
-    # 1. Hidráulica Tubos
+    # Hidráulica Tubos
     v_tubos = (m_frio_kg_s / rho_frio) / max(1.0, (N_tubos / pasos_tubos) * at)
     Re_i = (rho_frio * v_tubos * ID_tubo_m) / mu_frio
     Nu_i = 0.023 * (Re_i ** 0.8) * (pr_frio ** (1.0/3.0))
     h_i = (Nu_i * k_frio) / ID_tubo_m
 
-    # Factor de fricción y Caída de presión Tubos (Sinnott Eq. 12.19)
     f_tubo = max(0.001, 0.046 * (Re_i ** -0.2))
     dP_tubos_Pa = pasos_tubos * (8.0 * f_tubo * (longitud_tubo_m / ID_tubo_m) + 2.5) * (rho_frio * (v_tubos ** 2) / 2.0)
     dP_tubos_bar = dP_tubos_Pa / 1e5
 
-    # 2. Hidráulica Casco
+    # Hidráulica Casco
     De = 0.015
     v_casco = (m_caliente_kg_s / rho_cal) / (Ds_m * 0.05)
     Re_o = (rho_cal * v_casco * De) / mu_cal
     Nu_o = 0.36 * (Re_o ** 0.55) * (pr_cal ** (1.0/3.0))
     h_o = (Nu_o * k_cal) / De
 
-    # Factor de fricción y Caída de presión Casco (Sinnott Eq. 12.26)
     f_casco = max(0.01, 1.93 * (Re_o ** -0.187))
     N_bafles = max(1, int(longitud_tubo_m / (Ds_m * 0.4)))
     dP_casco_Pa = 8.0 * f_casco * (Ds_m / De) * N_bafles * (rho_cal * (v_casco ** 2) / 2.0)
@@ -237,13 +235,10 @@ def optimizar_intercambiador(
                         capex = res["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"]
                         area = res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"]
                         
-                        dP_tub = res["Hidráulica y Caída de Presión (Kern)"]["Caída Presión Tubos ΔPt [bar]"]
-                        dP_cas = res["Hidráulica y Caída de Presión (Kern)"]["Caída Presión Casco ΔPs [bar]"]
+                        hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
+                        dP_tub = hidro.get("Caída Presión Tubos ΔPt [bar]", 0.1)
+                        dP_cas = hidro.get("Caída Presión Casco ΔPs [bar]", 0.1)
                         
-                        # -------------------------------------------------------------
-                        # OPCIÓN 2: ÍNDICE DE MÉRITO HIDRÁULICO-ECONÓMICO (HTRI/EDR)
-                        # Penaliza exponencialmente diseños que ahoguen bombas (ΔP > 0.5 bar)
-                        # -------------------------------------------------------------
                         penalizacion_dP = (1.0 + max(0.0, (dP_tub - 0.5) * 3.0)) * (1.0 + max(0.0, (dP_cas - 0.5) * 3.0))
                         factor_penalizacion_margen = max(0.1, 1.0 + (margen / 100.0))
                         indice_merito = (capex * penalizacion_dP) / (area * factor_penalizacion_margen)
@@ -283,7 +278,7 @@ def optimizar_intercambiador(
     
     idx_eco = df["CAPEX [USD]"].idxmin()
     idx_comp = df["Área [m²]"].idxmin()
-    idx_oper = df["Índice de Mérito"].idxmin() # Selecciona al mejor balance hidráulico-económico
+    idx_oper = df["Índice de Mérito"].idxmin()
 
     top_rec = {
         "Económico": df.loc[idx_eco].to_dict(),

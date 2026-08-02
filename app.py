@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit con métricas de Caída de Presión (ΔP) y velocidad.
+# DESCRIPCIÓN: Interfaz Streamlit blindada con .get() contra errores de clave.
 # ==============================================================================
 
 import streamlit as st
@@ -83,10 +83,20 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
 
         st.subheader("📊 Métricas Clave y Verificación Convectiva e Hidráulica")
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Área TEMA Instalada [m²]", f"{res['Dimensionamiento TEMA & Kern']['Área Instalada Real [m²]']} m²")
-        col2.metric("U REAL Calculado (Kern)", f"{res['Verificación Convectiva (Rating Kern)']['Coef. Global REAL U_calc [W/m²·K]']} W/m²·K")
-        col3.metric("ΔP Tubos / Casco [bar]", f"{res['Hidráulica y Caída de Presión (Kern)']['Caída Presión Tubos ΔPt [bar]']} / {res['Hidráulica y Caída de Presión (Kern)']['Caída Presión Casco ΔPs [bar]']} bar")
-        col4.metric("Margen Térmico [%]", f"{res['Verificación Convectiva (Rating Kern)']['Margen Seguridad Térmica [%]']} %")
+        
+        area_inst = res.get("Dimensionamiento TEMA & Kern", {}).get("Área Instalada Real [m²]", "N/A")
+        u_real = res.get("Verificación Convectiva (Rating Kern)", {}).get("Coef. Global REAL U_calc [W/m²·K]", "N/A")
+        
+        hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
+        dp_t = hidro.get("Caída Presión Tubos ΔPt [bar]", "0.0")
+        dp_s = hidro.get("Caída Presión Casco ΔPs [bar]", "0.0")
+        
+        margen_term = res.get("Verificación Convectiva (Rating Kern)", {}).get("Margen Seguridad Térmica [%]", "0.0")
+
+        col1.metric("Área TEMA Instalada [m²]", f"{area_inst} m²")
+        col2.metric("U REAL Calculado (Kern)", f"{u_real} W/m²·K")
+        col3.metric("ΔP Tubos / Casco [bar]", f"{dp_t} / {dp_s} bar")
+        col4.metric("Margen Térmico [%]", f"{margen_term} %")
 
         st.divider()
         col_dl1, col_dl2 = st.columns(2)
@@ -106,15 +116,15 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
             "Balance Termodinámico"
         ])
         with tab1:
-            st.dataframe(pd.DataFrame(list(res["Dimensionamiento TEMA & Kern"].items()), columns=["Parámetro TEMA / Kern", "Valor Calculado"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res.get("Dimensionamiento TEMA & Kern", {}).items()), columns=["Parámetro TEMA / Kern", "Valor Calculado"]), use_container_width=True, hide_index=True)
         with tab2:
-            st.dataframe(pd.DataFrame(list(res["Verificación Convectiva (Rating Kern)"].items()), columns=["Variable de Convección (Kern)", "Resultado"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res.get("Verificación Convectiva (Rating Kern)", {}).items()), columns=["Variable de Convección (Kern)", "Resultado"]), use_container_width=True, hide_index=True)
         with tab3:
-            st.dataframe(pd.DataFrame(list(res["Hidráulica y Caída de Presión (Kern)"].items()), columns=["Variable Hidráulica", "Resultado [bar / m/s]"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res.get("Hidráulica y Caída de Presión (Kern)", {}).items()), columns=["Variable Hidráulica", "Resultado [bar / m/s]"]), use_container_width=True, hide_index=True)
         with tab4:
-            st.dataframe(pd.DataFrame(list(res["Diseño Mecánico ASME BPVC"].items()), columns=["Parámetro Mecánico ASME", "Especificación / Valor"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res.get("Diseño Mecánico ASME BPVC", {}).items()), columns=["Parámetro Mecánico ASME", "Especificación / Valor"]), use_container_width=True, hide_index=True)
         with tab5:
-            st.dataframe(pd.DataFrame(list(res["Termodinámica"].items()), columns=["Variable de Proceso", "Valor Operativo"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res.get("Termodinámica", {}).items()), columns=["Variable de Proceso", "Valor Operativo"]), use_container_width=True, hide_index=True)
 
     except ValueError as err_f:
         st.error(f"🚨 **Alerta de Inviabilidad:** {err_f}")
@@ -138,31 +148,37 @@ else:
         col_t1, col_t2, col_t3 = st.columns(3)
 
         with col_t1:
-            eco = top_rec["Económico"]
+            eco = top_rec.get("Económico", {})
             st.success("💰 **ÓPTIMO ECONÓMICO**")
-            st.markdown(f"**TEMA:** `{eco['TEMA [-]']}` | **Área:** `{eco['Área [m²]']} m²`")
-            st.markdown(f"**Casco Ds:** `{eco['Casco Ds [mm]']} mm` | **Longitud:** `{eco['Longitud [m]']} m`")
-            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{eco['T Frío Salida [°C]']}°C`")
-            st.markdown(f"**ΔP Tubos / Casco:** `{eco['ΔP Tubos [bar]']}` / `{eco['ΔP Casco [bar]']} bar`")
-            st.metric("Inversión Estimada", f"${eco['CAPEX [USD]']:,.2f} USD")
+            st.markdown(f"**TEMA:** `{eco.get('TEMA [-]', 'BEM')}` | **Área:** `{eco.get('Área [m²]', 0)} m²`")
+            st.markdown(f"**Casco Ds:** `{eco.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{eco.get('Longitud [m]', 0)} m`")
+            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{eco.get('T Frío Salida [°C]', 0)}°C`")
+            dp_tub_eco = eco.get("ΔP Tubos [bar]", "0.0")
+            dp_cas_eco = eco.get("ΔP Casco [bar]", "0.0")
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_tub_eco}` / `{dp_cas_eco} bar`")
+            st.metric("Inversión Estimada", f"${eco.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t2:
-            comp = top_rec["Compacto"]
+            comp = top_rec.get("Compacto", {})
             st.info("📐 **ÓPTIMO COMPACTO**")
-            st.markdown(f"**TEMA:** `{comp['TEMA [-]']}` | **Área:** `{comp['Área [m²]']} m²`")
-            st.markdown(f"**Casco Ds:** `{comp['Casco Ds [mm]']} mm` | **Longitud:** `{comp['Longitud [m]']} m`")
-            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{comp['T Frío Salida [°C]']}°C`")
-            st.markdown(f"**ΔP Tubos / Casco:** `{comp['ΔP Tubos [bar]']}` / `{comp['ΔP Casco [bar]']} bar`")
-            st.metric("Inversión Estimada", f"${comp['CAPEX [USD]']:,.2f} USD")
+            st.markdown(f"**TEMA:** `{comp.get('TEMA [-]', 'BEM')}` | **Área:** `{comp.get('Área [m²]', 0)} m²`")
+            st.markdown(f"**Casco Ds:** `{comp.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{comp.get('Longitud [m]', 0)} m`")
+            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{comp.get('T Frío Salida [°C]', 0)}°C`")
+            dp_tub_comp = comp.get("ΔP Tubos [bar]", "0.0")
+            dp_cas_comp = comp.get("ΔP Casco [bar]", "0.0")
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_tub_comp}` / `{dp_cas_comp} bar`")
+            st.metric("Inversión Estimada", f"${comp.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t3:
-            oper = top_rec["Operativo"]
+            oper = top_rec.get("Operativo", {})
             st.warning("🛡️ **ÓPTIMO OPERATIVO (API 660 / EDR)**")
-            st.markdown(f"**TEMA:** `{oper['TEMA [-]']}` | **Área:** `{oper['Área [m²]']} m²`")
-            st.markdown(f"**Casco Ds:** `{oper['Casco Ds [mm]']} mm` | **Longitud:** `{oper['Longitud [m]']} m`")
-            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{oper['T Frío Salida [°C]']}°C`")
-            st.markdown(f"**ΔP Tubos / Casco:** `{oper['ΔP Tubos [bar]']}` / `{oper['ΔP Casco [bar]']} bar`")
-            st.metric("Inversión Estimada", f"${oper['CAPEX [USD]']:,.2f} USD")
+            st.markdown(f"**TEMA:** `{oper.get('TEMA [-]', 'BEM')}` | **Área:** `{oper.get('Área [m²]', 0)} m²`")
+            st.markdown(f"**Casco Ds:** `{oper.get('Casco Ds [mm]', 0)} mm` | **Longitud:** `{oper.get('Longitud [m]', 0)} m`")
+            st.markdown(f"**T Frío In/Out:** `{T_frio_in}°C` ➔ `{oper.get('T Frío Salida [°C]', 0)}°C`")
+            dp_tub_oper = oper.get("ΔP Tubos [bar]", "0.0")
+            dp_cas_oper = oper.get("ΔP Casco [bar]", "0.0")
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_tub_oper}` / `{dp_cas_oper} bar`")
+            st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
 
         st.divider()
         st.subheader("📥 Exportar Especificaciones del Equipo Optimizado")
@@ -174,13 +190,13 @@ else:
 
         if "Económico" in opcion_descarga:
             res_opt_seleccionado = top_rec["Económico"]["_res_full"]
-            tag_str = f"HEX-OPT-ECO ({top_rec['Económico']['TEMA [-]']})"
+            tag_str = f"HEX-OPT-ECO ({top_rec['Económico'].get('TEMA [-]', 'BEM')})"
         elif "Compacto" in opcion_descarga:
             res_opt_seleccionado = top_rec["Compacto"]["_res_full"]
-            tag_str = f"HEX-OPT-CMP ({top_rec['Compacto']['TEMA [-]']})"
+            tag_str = f"HEX-OPT-CMP ({top_rec['Compacto'].get('TEMA [-]', 'BEM')})"
         else:
             res_opt_seleccionado = top_rec["Operativo"]["_res_full"]
-            tag_str = f"HEX-OPT-OPR ({top_rec['Operativo']['TEMA [-]']})"
+            tag_str = f"HEX-OPT-OPR ({top_rec['Operativo'].get('TEMA [-]', 'BEM')})"
 
         meta_opt = {"tag": tag_str, "proyecto": "OPTIMIZACIÓN DE CATÁLOGO", "revision": "0", "calculado_por": "E. Livingston"}
         
