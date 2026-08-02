@@ -15,7 +15,6 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
     output = io.BytesIO()
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Bloque de Encabezado / Metadata del Proyecto
         df_meta = pd.DataFrame([
             {"Parámetro de Proyecto": "TAG del Equipo", "Valor": meta.get("tag", "HEX-0100")},
             {"Parámetro de Proyecto": "Proyecto", "Valor": meta.get("proyecto", "GENERAL")},
@@ -30,7 +29,6 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
         d_asme = res.get("Diseño Mecánico ASME BPVC", {})
         d_termo = res.get("Termodinámica", {})
 
-        # Estructura jerárquica de la planilla técnica
         filas_resumen = [
             ("--- DIMENSIONAMIENTO TEMA & KERN ---", ""),
             ("Tipo TEMA", d_tema.get("Tipo TEMA [-]")),

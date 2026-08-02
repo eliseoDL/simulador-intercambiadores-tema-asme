@@ -2,7 +2,7 @@
 # ARCHIVO: app.py
 # DESCRIPCIÓN: Interfaz Streamlit con presiones operativas hasta 100 bar,
 #              visualización explícita de caídas de presión, márgenes térmicos
-#              y guía interactiva para el usuario sobre el Margen Térmico (%).
+#              reales y guía interactiva para el usuario sobre el Margen Térmico (%).
 # ==============================================================================
 
 import streamlit as st
@@ -32,9 +32,9 @@ st.markdown(
 def mostrar_guia_margen_termico():
     with st.expander("ℹ️ Guía industrial: ¿Qué es el Margen Térmico (%) y cómo interpretarlo?"):
         st.markdown("""
-        El **Margen de Seguridad Térmica (*Thermal Design Margin*)** indica el porcentaje de **superficie de transferencia de calor extra** que posee el intercambiador real respecto a la superficie mínima teórica requerida por el proceso:
+        El **Margen de Seguridad Térmica (*Thermal Design Margin*)** indica el porcentaje de **superficie de transferencia de calor instalada en exceso** respecto a la superficie requerida por el coeficiente $U_{\\text{calc}}$ del equipo:
         
-        $$\\text{Margen Térmico [\\%]} = \\left( \\frac{U_{\\text{calc}} - U_{\\text{req}}}{U_{\\text{req}}} \\right) \\times 100$$
+        $$\\text{Margen Térmico [\\%]} = \\left( \\frac{A_{\\text{instalada}} - A_{\\text{req, real}}}{A_{\\text{req, real}}} \\right) \\times 100$$
         
         ### 📊 ¿Cómo interpretar este valor en una planta?
         
@@ -91,12 +91,10 @@ m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
 
 T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
 T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 10.0, 250.0, 60.0, 5.0)
-# Slider ampliado hasta 100 bar para alta presión industrial
 P_cal_op = st.sidebar.slider("Presión Operativa Fluido Caliente [bar]", 1.0, 100.0, 10.0, 1.0)
 
 st.sidebar.divider()
 T_frio_in = st.sidebar.slider("Temp. Entrada Fluido Frío [°C]", 5.0, 40.0, 25.0, 1.0)
-# Slider ampliado hasta 100 bar para alta presión industrial
 P_frio_op = st.sidebar.slider("Presión Operativa Fluido Frío [bar]", 1.0, 100.0, 5.0, 1.0)
 
 # ==============================================================================

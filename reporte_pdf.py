@@ -24,7 +24,6 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     story = []
     styles = getSampleStyleSheet()
     
-    # Estilos tipográficos institucionales
     estilo_titulo = ParagraphStyle('TituloHoja', parent=styles['Heading1'], fontSize=14, leading=18, textColor=colors.HexColor('#1A365D'), alignment=1, spaceAfter=4)
     estilo_sub = ParagraphStyle('SubHoja', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#4A5568'), alignment=1, spaceAfter=12)
     estilo_celda = ParagraphStyle('TextoCelda', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#2D3748'))
