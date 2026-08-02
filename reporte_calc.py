@@ -1,7 +1,6 @@
 # ==============================================================================
 # ARCHIVO: reporte_calc.py
-# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx)
-#              con diseño profesional para Hojas de Datos TEMA / ASME.
+# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx).
 # ==============================================================================
 
 import io
@@ -47,6 +46,7 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
             ("CAPEX Estimado [USD]", d_asme.get("CAPEX Estimado [USD]")),
             ("--- TERMODINÁMICA ---", ""),
             ("Carga Térmica Q [kW]", d_termo.get("Carga Térmica Q [kW]")),
+            ("Caudal Fluido Frío [kg/s]", d_termo.get("Caudal Fluido Frío [kg/s]")),
             ("Temperatura Salida Frío [°C]", d_termo.get("Temperatura Salida Frío [°C]")),
             ("LMTD Corregida [°C]", d_termo.get("LMTD Corregida [°C]")),
             ("Factor Ft", d_termo.get("Factor Ft [-]"))

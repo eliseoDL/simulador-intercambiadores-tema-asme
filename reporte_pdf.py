@@ -1,7 +1,6 @@
 # ==============================================================================
 # ARCHIVO: reporte_pdf.py
-# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF utilizando ReportLab,
-#              con diseño técnico normalizado TEMA / ASME.
+# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF.
 # ==============================================================================
 
 import io
@@ -13,65 +12,27 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer,
-        pagesize=letter,
-        rightMargin=36, leftMargin=36,
-        topMargin=36, bottomMargin=36
+        buffer, pagesize=letter,
+        rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
     )
     
     story = []
     styles = getSampleStyleSheet()
     
-    # Estilos personalizados
-    estilo_titulo = ParagraphStyle(
-        'TituloHoja',
-        parent=styles['Heading1'],
-        fontSize=14,
-        leading=18,
-        textColor=colors.HexColor('#1A365D'),
-        alignment=1, # Centrado
-        spaceAfter=4
-    )
-    
-    estilo_sub = ParagraphStyle(
-        'SubHoja',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
-        textColor=colors.HexColor('#4A5568'),
-        alignment=1,
-        spaceAfter=12
-    )
-    
-    estilo_celda = ParagraphStyle(
-        'TextoCelda',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=10,
-        textColor=colors.HexColor('#2D3748')
-    )
-    
-    estilo_celda_bold = ParagraphStyle(
-        'TextoCeldaBold',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=10,
-        fontName='Helvetica-Bold',
-        textColor=colors.HexColor('#1A365D')
-    )
+    estilo_titulo = ParagraphStyle('TituloHoja', parent=styles['Heading1'], fontSize=14, leading=18, textColor=colors.HexColor('#1A365D'), alignment=1, spaceAfter=4)
+    estilo_sub = ParagraphStyle('SubHoja', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#4A5568'), alignment=1, spaceAfter=12)
+    estilo_celda = ParagraphStyle('TextoCelda', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#2D3748'))
+    estilo_celda_bold = ParagraphStyle('TextoCeldaBold', parent=styles['Normal'], fontSize=8, leading=10, fontName='Helvetica-Bold', textColor=colors.HexColor('#1A365D'))
 
-    # Encabezado del documento
     story.append(Paragraph("<b>HOJA DE DATOS TÉCNICOS — INTERCAMBIADOR DE CALOR</b>", estilo_titulo))
-    story.append(Paragraph(f"Normas de Diseño: TEMA & ASME BPVC Sec. VIII Div. 1 | Proyecto: {meta.get('proyecto', 'GENERAL')} | TAG: {meta.get('tag', 'HEX-0100')}", estilo_sub))
+    story.append(Paragraph(f"Normas: TEMA & ASME | Proyecto: {meta.get('proyecto', 'GENERAL')} | TAG: {meta.get('tag', 'HEX-0100')}", estilo_sub))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1A365D'), spaceBefore=0, spaceAfter=10))
 
-    # Extraer bloques del resultado
     d_tema = res.get("Dimensionamiento TEMA & Kern", {})
     d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
     d_asme = res.get("Diseño Mecánico ASME BPVC", {})
     d_termo = res.get("Termodinámica", {})
 
-    # Armar la tabla de datos técnicos unificada
     datos_tabla = [
         [Paragraph("<b>PARÁMETRO / ESPECIFICACIÓN TÉCNICA</b>", estilo_celda_bold), Paragraph("<b>VALOR OPERATIVO / GEOMÉTRICO</b>", estilo_celda_bold)]
     ]
@@ -102,6 +63,7 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
         ]),
         ("--- BALANCE TERMODINÁMICO ---", [
             ("Carga Térmica Q [kW]", d_termo.get("Carga Térmica Q [kW]")),
+            ("Caudal Fluido Frío [kg/s]", d_termo.get("Caudal Fluido Frío [kg/s]")),
             ("Temperatura Salida Frío [°C]", d_termo.get("Temperatura Salida Frío [°C]")),
             ("LMTD Corregida [°C]", d_termo.get("LMTD Corregida [°C]")),
             ("Factor Ft", d_termo.get("Factor Ft [-]"))
@@ -109,7 +71,6 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     ]
 
     for titulo_seccion, items in bloques:
-        # Fila de sección
         datos_tabla.append([Paragraph(f"<b>{titulo_seccion}</b>", estilo_celda_bold), Paragraph("", estilo_celda)])
         for k, v in items:
             datos_tabla.append([Paragraph(str(k), estilo_celda), Paragraph(str(v), estilo_celda)])
@@ -125,10 +86,8 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
     ]))
 
     story.append(tabla_pdf)
-    
-    # Pie de página / metadatos
     story.append(Spacer(1, 15))
-    story.append(Paragraph(f"<b>Revisión:</b> {meta.get('revision', '0')} | <b>Calculado por:</b> {meta.get('calculado_por', 'E. Livingston')} | <i>Generado desde Simulador TEMA/ASME</i>", estilo_sub))
+    story.append(Paragraph(f"<b>Revisión:</b> {meta.get('revision', '0')} | <b>Calculado por:</b> {meta.get('calculado_por', 'E. Livingston')}", estilo_sub))
 
     doc.build(story)
     buffer.seek(0)

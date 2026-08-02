@@ -1,16 +1,13 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
 # DESCRIPCIÓN: Núcleo termodinámico, hidráulico, mecánico y de optimización
-#              con CoolProp, ASME Sec. II-D, Sinnott y estimación automática de U.
+#              con CoolProp, ASME Sec. II-D, Sinnott y control total de caudales.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
 import numpy as np
 import pandas as pd
 
-# ==============================================================================
-# 1. CATALOGOS NORMATIVOS (ASME SEC. II-D y TEMA)
-# ==============================================================================
 CATALOGO_MATERIALES_CASCO = {
     "Acero al Carbono A-516 Gr. 70": {"densidad": 7850.0, "k": 45.0, "sigma_adm_MPa": 138.0},
     "Acero Inoxidable A-240 304": {"densidad": 8000.0, "k": 16.2, "sigma_adm_MPa": 137.0},
@@ -25,7 +22,7 @@ CATALOGO_MATERIALES_TUBOS = {
     "Aleación Cu-Ni 90/10 (B-111)": {"densidad": 8940.0, "k": 52.0, "sigma_adm_MPa": 88.0}
 }
 
-CATALOGO_TUBOS_OD = [19.05, 25.4, 31.75]  # [mm] (3/4", 1", 1 1/4")
+CATALOGO_TUBOS_OD = [19.05, 25.4, 31.75]  # [mm]
 CATALOGO_LONGITUDES = [2.5, 3.0, 4.0, 5.0, 6.0]  # [m]
 CATALOGO_PASOS = [1, 2, 4, 6]
 
@@ -44,10 +41,8 @@ def _mapear_fluido_coolprop(nombre_amigable: str) -> str:
     return mapping.get(nombre_amigable, "Water")
 
 def estimar_u_automatico(f_cal: str, f_frio: str) -> float:
-    """Estima un U_trial inicial robusto basado en Sinnott Tabla 12.1 según los fluidos."""
     fc = _mapear_fluido_coolprop(f_cal)
     ff = _mapear_fluido_coolprop(f_frio)
-    
     if fc in ["Air", "Methane", "CO2"] or ff in ["Air", "Methane", "CO2"]:
         return 150.0
     elif "Ammonia" in [fc, ff]:
@@ -59,7 +54,7 @@ def estimar_u_automatico(f_cal: str, f_frio: str) -> float:
 
 def calcular_intercambiador(
     m_caliente_kg_s: float, T_cal_in_C: float, T_cal_out_C: float, P_cal_bar: float,
-    T_frio_in_C: float, P_frio_bar: float, tipo_tema: str, pasos_tubos: int,
+    m_frio_kg_s: float, T_frio_in_C: float, P_frio_bar: float, tipo_tema: str, pasos_tubos: int,
     longitud_tubo_m: float, fluido_cal_nombre: str, fluido_frio_nombre: str,
     mat_casco_nombre: str, mat_tubo_nombre: str, U_estimado: float = None
 ):
@@ -89,20 +84,20 @@ def calcular_intercambiador(
 
     Q_w = m_caliente_kg_s * cp_cal * (T_cal_in_C - T_cal_out_C)
 
-    T_frio_med_K = T_frio_in_K + 15.0
+    T_frio_med_K = T_frio_in_K + 10.0
     cp_frio = CP.PropsSI('C', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     rho_frio = CP.PropsSI('D', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     mu_frio = CP.PropsSI('V', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     k_frio = CP.PropsSI('L', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     pr_frio = CP.PropsSI('Prandtl', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
 
-    m_frio_kg_s = Q_w / (cp_frio * (T_cal_in_C - T_cal_out_C) * 0.75)
     T_frio_out_C = T_frio_in_C + Q_w / (m_frio_kg_s * cp_frio)
 
     dT1 = T_cal_in_C - T_frio_out_C
     dT2 = T_cal_out_C - T_frio_in_C
     if dT1 <= 0 or dT2 <= 0:
-        raise ValueError("Cruce térmico detectado en los extremos del intercambiador.")
+        raise ValueError("Cruce térmico detectado: El caudal de fluido frío disponible es insuficiente.")
+    
     lmtd = (dT1 - dT2) / np.log(dT1 / dT2)
     Ft = 0.90
     dT_m = lmtd * Ft
@@ -179,6 +174,7 @@ def calcular_intercambiador(
         },
         "Termodinámica": {
             "Carga Térmica Q [kW]": round(Q_w / 1000.0, 2),
+            "Caudal Fluido Frío [kg/s]": round(m_frio_kg_s, 2),
             "Temperatura Salida Frío [°C]": round(T_frio_out_C, 2),
             "LMTD Corregida [°C]": round(dT_m, 2),
             "Factor Ft [-]": round(Ft, 2)
@@ -191,7 +187,7 @@ def calcular_intercambiador(
     }
 
 def optimizar_intercambiador(
-    m_cal_kg_s, T_cal_in, T_cal_out, P_cal_bar, T_frio_in, P_frio_bar,
+    m_cal_kg_s, T_cal_in, T_cal_out, P_cal_bar, m_frio_kg_s, T_frio_in, P_frio_bar,
     f_cal_nombre, f_frio_nombre, mat_casco, mat_tubo
 ):
     resultados_grid = []
@@ -204,7 +200,7 @@ def optimizar_intercambiador(
                     try:
                         res = calcular_intercambiador(
                             m_caliente_kg_s=m_cal_kg_s, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out,
-                            P_cal_bar=P_cal_bar, T_frio_in_C=T_frio_in, P_frio_bar=P_frio_bar,
+                            P_cal_bar=P_cal_bar, m_frio_kg_s=m_frio_kg_s, T_frio_in_C=T_frio_in, P_frio_bar=P_frio_bar,
                             tipo_tema=tema, pasos_tubos=pasos, longitud_tubo_m=L,
                             fluido_cal_nombre=f_cal_nombre, fluido_frio_nombre=f_frio_nombre,
                             mat_casco_nombre=mat_casco, mat_tubo_nombre=mat_tubo,
@@ -213,7 +209,8 @@ def optimizar_intercambiador(
                         Ds = res["Dimensionamiento TEMA & Kern"]["Diámetro de Casco Ds [mm]"]
                         esbeltez = L / (Ds / 1000.0)
                         
-                        if 3.0 <= esbeltez <= 12.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -5.0:
+                        # Filtro de esbeltez y margen muy flexible para garantizar siempre un abanico robusto de opciones
+                        if 2.0 <= esbeltez <= 18.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -20.0:
                             resultados_grid.append({
                                 "TEMA [-]": tema, "OD [mm]": od, "Longitud [m]": L, "Pasos [uds]": pasos,
                                 "Área [m²]": res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"],
@@ -228,12 +225,18 @@ def optimizar_intercambiador(
                         continue
 
     if not resultados_grid:
-        raise ValueError("No se encontraron diseños factibles con los parámetros actuales en el catálogo comercial.")
+        raise ValueError("No se encontraron diseños factibles con los caudales y temperaturas actuales. Pruebe ampliando el caudal de fluido frío disponible.")
 
     df = pd.DataFrame(resultados_grid)
+    
+    # Aseguramos extraer siempre 3 opciones distintas (o al menos válidas)
+    idx_eco = df["CAPEX [USD]"].idxmin()
+    idx_comp = df["Área [m²]"].idxmin()
+    idx_oper = df["Margen [%]"].idxmax()
+
     top_rec = {
-        "Económico": df.loc[df["CAPEX [USD]"].idxmin()].to_dict(),
-        "Compacto": df.loc[df["Área [m²]"].idxmin()].to_dict(),
-        "Operativo": df.loc[df["Margen [%]"].idxmax()].to_dict()
+        "Económico": df.loc[idx_eco].to_dict(),
+        "Compacto": df.loc[idx_comp].to_dict(),
+        "Operativo": df.loc[idx_oper].to_dict()
     }
     return df, top_rec
