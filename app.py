@@ -2,7 +2,7 @@
 # ARCHIVO: app.py
 # DESCRIPCIÓN: Interfaz Streamlit con presiones operativas hasta 100 bar,
 #              visualización explícita de caídas de presión, márgenes térmicos,
-#              guía de usuario UX y gráfico dinámico multipaso con choque térmico.
+#              guía de usuario UX y gráfico dinámico con banner de pasos por tubo/carcasa.
 # ==============================================================================
 
 import streamlit as st
@@ -59,9 +59,11 @@ def generar_grafico_perfil_pasos(res: dict):
     d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
     d_termo = res.get("Termodinámica", {})
 
-    pasos = int(d_tema.get("Pasos por Tubos [uds]", 2))
+    pasos_tubo = int(d_tema.get("Pasos por Tubos [uds]", 2))
+    pasos_carcasa = 1  # Estándar TEMA para un solo casco
+    tipo_tema_str = str(d_tema.get("Tipo TEMA [-]", "BEM"))
     L_tubo = float(d_tema.get("Longitud del Tubo [m]", 3.0))
-    L_total = L_tubo * pasos
+    L_total = L_tubo * pasos_tubo
 
     T_frio_in = float(d_termo.get("Temperatura Entrada Frío [°C]", 25.0))
     T_frio_out = float(d_termo.get("Temperatura Salida Frío [°C]", 60.0))
@@ -73,7 +75,7 @@ def generar_grafico_perfil_pasos(res: dict):
     u_val = float(d_rating.get("Coef. Global REAL U_calc [W/m²·K]", 800.0))
     ho_val = float(d_rating.get("Coeficiente Película Casco ho [W/m²·K]", 1500.0))
 
-    n_puntos = 50 * pasos
+    n_puntos = 50 * pasos_tubo
     x_total = np.linspace(0, L_total, n_puntos)
     k_decay = 2.0 / max(1.0, L_total)
     
@@ -88,6 +90,14 @@ def generar_grafico_perfil_pasos(res: dict):
     dT_dz_max = abs(T_frio_curva[5] - T_frio_curva[0]) / max(0.01, (x_total[5] - x_total[0]))
     T_wall_max = max(T_wall_curva)
 
+    # --- BANNER SUPERIOR: RESUMEN DE ARREGLO DE PASOS Y TIPOLOGÍA TEMA ---
+    st.info(
+        f"🔩 **Arreglo Geométrico del Equipo Seleccionado:** Tipología Normativa **`TEMA {tipo_tema_str}`**  |  "
+        f"**Pasos por Tubos:** `{pasos_tubo} paso{'s' if pasos_tubo > 1 else ''}`  |  "
+        f"**Pasos por Carcasa:** `{pasos_carcasa} paso`"
+    )
+
+    # --- PANEL DE DIAGNÓSTICO INDUSTRIAL (KPIs EN PANTALLA) ---
     c_kpi1, c_kpi2, c_kpi3 = st.columns(3)
     c_kpi1.metric("🔥 Temp. Máxima de Pared (T_wall)", f"{T_wall_max:.1f} °C", "Película límite")
     c_kpi2.metric("📈 Gradiente Térmico Máx. (dT/dz)", f"{dT_dz_max:.1f} °C/m", "Severidad inicial")
@@ -120,7 +130,7 @@ def generar_grafico_perfil_pasos(res: dict):
         line=dict(color='#DD6B20', width=2, dash='dash')
     ))
 
-    for p in range(1, pasos):
+    for p in range(1, pasos_tubo):
         x_sep = p * L_tubo
         fig.add_vline(
             x=x_sep, line_width=1.5, line_dash="dot", line_color="#A0AEC0",
@@ -131,7 +141,7 @@ def generar_grafico_perfil_pasos(res: dict):
         )
 
     colores_paso = ["rgba(237, 242, 247, 0.4)", "rgba(226, 232, 240, 0.2)"]
-    for p in range(pasos):
+    for p in range(pasos_tubo):
         fig.add_vrect(
             x0=p * L_tubo, x1=(p + 1) * L_tubo,
             fillcolor=colores_paso[p % 2], layer="below", line_width=0,
