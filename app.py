@@ -1,9 +1,7 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit dual con soporte multifluido (CoolProp),
-#              selección de materiales ASME II-D, rangos térmicos ampliados
-#              (5°C a 300°C), visualización completa de Área [m²], Casco Ds [mm],
-#              U_real, sección de ecuaciones base y exportación sin errores.
+# DESCRIPCIÓN: Interfaz Streamlit con estimación automática de U basada en CoolProp,
+#              rangos térmicos de 5°C a 300°C y sección de ecuaciones base.
 # ==============================================================================
 
 import streamlit as st
@@ -11,7 +9,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from intercambiador_core import calcular_intercambiador, optimizar_intercambiador, CATALOGO_MATERIALES_CASCO, CATALOGO_MATERIALES_TUBOS
+from intercambiador_core import calcular_intercambiador, optimizar_intercambiador, estimar_u_automatico, CATALOGO_MATERIALES_CASCO, CATALOGO_MATERIALES_TUBOS
 from reporte_pdf import generar_pdf_hoja_datos
 from reporte_calc import generar_calc_hoja_datos
 
@@ -23,12 +21,12 @@ st.set_page_config(
 
 st.title("🔄 Simulador y Optimizador de Intercambiadores de Casco y Tubos (TEMA / ASME)")
 st.markdown(
-    "**Motor termodinámico multifluido (`CoolProp`), Método de Kern para Sizing & Rating (Sinnott Cap. 12) y diseño mecánico ASME BPVC Sección VIII Div. 1.**\n\n"
-    "*Permite verificar geometrías específicas o ejecutar una optimización combinatoria sobre catálogos comerciales con estimación CAPEX (Sinnott Cap. 6).* "
+    "**Motor termodinámico multifluido (`CoolProp`), Método de Kern (Sinnott Cap. 12) y diseño mecánico ASME BPVC Sección VIII Div. 1.**\n\n"
+    "*El motor determina automáticamente el coeficiente global inicial según la naturaleza de los fluidos seleccionados.*"
 )
 
 # ==============================================================================
-# BARRA LATERAL: MODO, FLUIDOS Y MATERIALES INDEPENDIENTES
+# BARRA LATERAL
 # ==============================================================================
 st.sidebar.header("🎛️ Modo de Operación")
 modo_app = st.sidebar.radio(
@@ -50,14 +48,9 @@ lista_fluidos = [
 f_cal = st.sidebar.selectbox("Fluido Lado Caliente (Proceso) [-]", lista_fluidos, index=0)
 f_frio = st.sidebar.selectbox("Fluido Lado Frío (Servicio Auxiliar) [-]", lista_fluidos[:4], index=0)
 
-if "Air" in f_cal or "Methane" in f_cal or "CO2" in f_cal:
-    st.sidebar.info("💡 **Sinnott Tabla 12.1:** Para Gas — Agua, el coeficiente *U de prueba* típico recomendado es **20 - 300 [W/m²·K]**.")
-elif "Ammonia" in f_cal:
-    st.sidebar.info("💡 **Sinnott Tabla 12.1:** Para Amoníaco — Agua, el coeficiente *U de prueba* típico recomendado es **800 - 1400 [W/m²·K]**.")
-elif "Ethanol" in f_cal or "Benzene" in f_cal or "Toluene" in f_cal:
-    st.sidebar.info("💡 **Sinnott Tabla 12.1:** Para Orgánicos — Agua, el coeficiente *U de prueba* típico recomendado es **500 - 800 [W/m²·K]**.")
-else:
-    st.sidebar.info("💡 **Sinnott Tabla 12.1:** Para Agua — Agua, el coeficiente *U de prueba* típico recomendado es **800 - 1500 [W/m²·K]**.")
+# Mostrar U automático estimado de referencia
+u_ref = estimar_u_automatico(f_cal, f_frio)
+st.sidebar.info(f"💡 **Coeficiente U de Arranque Asignado:** `{u_ref} [W/m²·K]` (Estimado automáticamente por pares fluidos).")
 
 st.sidebar.divider()
 st.sidebar.header("🛡️ Materiales Normados (ASME Sec. II-D)")
@@ -68,18 +61,10 @@ st.sidebar.divider()
 st.sidebar.header("🔧 Parámetros del Proceso")
 m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
 
-# Rango ampliado de temperaturas (desde fluidos fríos/refrigerados hasta alta temperatura)
 T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
 T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 10.0, 250.0, 60.0, 5.0)
 T_frio_in = st.sidebar.slider("Temp. Entrada Fluido Frío [°C]", 5.0, 40.0, 25.0, 1.0)
-
 P_op = st.sidebar.slider("Presión Operativa Lado Casco/Tubos [bar]", 2.0, 40.0, 10.0, 1.0)
-
-U_est = st.sidebar.number_input(
-    "Coeficiente U ESTIMADO de Prueba [W/m²·K]",
-    min_value=100.0, max_value=2500.0, value=800.0, step=50.0,
-    help="U_trial utilizado según Sinnott Cap. 12.3 para inicializar la geometría. El U_real operativo se verifica en los resultados."
-)
 
 # ==============================================================================
 # MODO 1: VERIFICACIÓN Y SIMULACIÓN MANUAL
@@ -94,7 +79,7 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
         res = calcular_intercambiador(
             m_caliente_kg_s=m_cal, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out,
             P_cal_bar=P_op, T_frio_in_C=T_frio_in, P_frio_bar=5.0, tipo_tema=tema_tipo,
-            pasos_tubos=pasos, U_estimado=U_est, longitud_tubo_m=long_tubo,
+            pasos_tubos=pasos, longitud_tubo_m=long_tubo,
             fluido_cal_nombre=f_cal, fluido_frio_nombre=f_frio,
             mat_casco_nombre=m_casco_sel, mat_tubo_nombre=m_tubo_sel
         )
@@ -122,7 +107,7 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
             c_test = np.linspace(1.0, 20.0, 10)
             capex_vals = []
             for ct in c_test:
-                rt = calcular_intercambiador(m_caliente_kg_s=ct, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out, P_cal_bar=P_op, T_frio_in_C=T_frio_in, P_frio_bar=5.0, tipo_tema=tema_tipo, pasos_tubos=pasos, U_estimado=U_est, longitud_tubo_m=long_tubo, fluido_cal_nombre=f_cal, fluido_frio_nombre=f_frio, mat_casco_nombre=m_casco_sel, mat_tubo_nombre=m_tubo_sel)
+                rt = calcular_intercambiador(m_caliente_kg_s=ct, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out, P_cal_bar=P_op, T_frio_in_C=T_frio_in, P_frio_bar=5.0, tipo_tema=tema_tipo, pasos_tubos=pasos, longitud_tubo_m=long_tubo, fluido_cal_nombre=f_cal, fluido_frio_nombre=f_frio, mat_casco_nombre=m_casco_sel, mat_tubo_nombre=m_tubo_sel)
                 capex_vals.append(rt["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"])
             fig_c = go.Figure()
             fig_c.add_trace(go.Scatter(x=c_test, y=capex_vals, mode='lines+markers', line=dict(color='#2F855A', width=3), name='CAPEX [USD]'))
@@ -140,7 +125,7 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
             st.download_button("📄 Descargar PDF Oficial (.pdf)", generar_pdf_hoja_datos(res, meta_m), f"Data_Sheet_{tema_tipo}.pdf")
 
         st.divider()
-        st.subheader("📑 Memoria Técnica del Dimensionamiento (Con Unidades Explícitas)")
+        st.subheader("📑 Memoria Técnica del Dimensionamiento")
         tab1, tab2, tab3, tab4 = st.tabs([
             "Dimensionamiento TEMA & Kern",
             "Verificación Convectiva (U Real)",
@@ -148,17 +133,13 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
             "Balance Termodinámico"
         ])
         with tab1:
-            df_tema = pd.DataFrame(list(res["Dimensionamiento TEMA & Kern"].items()), columns=["Parámetro TEMA / Kern", "Valor Calculado"])
-            st.dataframe(df_tema, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res["Dimensionamiento TEMA & Kern"].items()), columns=["Parámetro TEMA / Kern", "Valor Calculado"]), use_container_width=True, hide_index=True)
         with tab2:
-            df_rating = pd.DataFrame(list(res["Verificación Convectiva (Rating Kern)"].items()), columns=["Variable de Convección (Kern)", "Resultado"])
-            st.dataframe(df_rating, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res["Verificación Convectiva (Rating Kern)"].items()), columns=["Variable de Convección (Kern)", "Resultado"]), use_container_width=True, hide_index=True)
         with tab3:
-            df_asme = pd.DataFrame(list(res["Diseño Mecánico ASME BPVC"].items()), columns=["Parámetro Mecánico ASME", "Especificación / Valor"])
-            st.dataframe(df_asme, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res["Diseño Mecánico ASME BPVC"].items()), columns=["Parámetro Mecánico ASME", "Especificación / Valor"]), use_container_width=True, hide_index=True)
         with tab4:
-            df_termo = pd.DataFrame(list(res["Termodinámica"].items()), columns=["Variable de Proceso", "Valor Operativo"])
-            st.dataframe(df_termo, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(list(res["Termodinámica"].items()), columns=["Variable de Proceso", "Valor Operativo"]), use_container_width=True, hide_index=True)
 
     except ValueError as err_f:
         st.error(f"🚨 **Alerta de Inviabilidad:** {err_f}")
@@ -170,15 +151,13 @@ else:
     st.subheader("🚀 Selección Inteligente de Equipos (Grid Search Multicriterio)")
     st.markdown(
         "El motor evalúa automáticamente combinaciones normalizadas del catálogo comercial "
-        "(`3/4\"`, `1\"`, `1 1/4\"`, longitudes de `2.5` a `6.0 m`, 1 a 6 pasos) y descarta diseños "
-        "inviables por esbeltez estructural ($3 \\le L/D_s \\le 10$), baja eficiencia ($F_t < 0.75$) o "
-        "margen térmico convectivo negativo."
+        "y selecciona los mejores diseños evaluando termodinámica, convección e inversión CAPEX."
     )
 
     try:
         df_grid, top_rec = optimizar_intercambiador(
             m_cal_kg_s=m_cal, T_cal_in=T_cal_in, T_cal_out=T_cal_out,
-            P_cal_bar=P_op, T_frio_in=T_frio_in, P_frio_bar=5.0, U_estimado=U_est,
+            P_cal_bar=P_op, T_frio_in=T_frio_in, P_frio_bar=5.0,
             f_cal_nombre=f_cal, f_frio_nombre=f_frio,
             mat_casco=m_casco_sel, mat_tubo=m_tubo_sel
         )
@@ -186,80 +165,44 @@ else:
         st.markdown("### 🏆 Top 3 Recomendaciones Tecnológicas de Diseño")
         col_t1, col_t2, col_t3 = st.columns(3)
 
-        # --- TARJETA 1: ÓPTIMO ECONÓMICO ---
         with col_t1:
             eco = top_rec["Económico"]
             st.success("💰 **ÓPTIMO ECONÓMICO (Mínimo CAPEX [USD])**")
             st.markdown(f"**Área Instalada [m²]:** `{eco['Área [m²]']} m²` | **TEMA:** `{eco['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{eco['Casco Ds [mm]']} mm` | **Longitud:** `{eco['Longitud [m]']} m`")
-            st.markdown(f"**Tubos [uds]:** `{eco['Tubos [uds]']}` | **OD:** `{eco['OD [mm]']} mm` (`{eco['Pasos [uds]']} pasos`)")
-            st.markdown(f"**U Real [W/m²·K]:** `{eco['U Real [W/m²·K]']}` | **Margen:** `{eco['Margen [%]']}%`")
+            st.markdown(f"**Tubos [uds]:** `{eco['U Real [W/m²·K]']}` W/m²·K | **Margen:** `{eco['Margen [%]']}%`")
             st.metric("Inversión Estimada [USD]", f"${eco['CAPEX [USD]']:,.2f} USD", delta="Recomendado EPC")
 
-        # --- TARJETA 2: ÓPTIMO COMPACTO ---
         with col_t2:
             comp = top_rec["Compacto"]
             st.info("📐 **ÓPTIMO COMPACTO (Mínimo Footprint [m²])**")
             st.markdown(f"**Área Instalada [m²]:** `{comp['Área [m²]']} m²` | **TEMA:** `{comp['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{comp['Casco Ds [mm]']} mm` | **Longitud:** `{comp['Longitud [m]']} m`")
-            st.markdown(f"**Tubos [uds]:** `{comp['Tubos [uds]']}` | **OD:** `{comp['OD [mm]']} mm` (`{comp['Pasos [uds]']} pasos`)")
-            st.markdown(f"**U Real [W/m²·K]:** `{comp['U Real [W/m²·K]']}` | **Margen:** `{comp['Margen [%]']}%`")
+            st.markdown(f"**U Real [W/m²·K]:** `{comp['U Real [W/m²·K]']}` W/m²·K | **Margen:** `{comp['Margen [%]']}%`")
             st.metric("Inversión Estimada [USD]", f"${comp['CAPEX [USD]']:,.2f} USD")
 
-        # --- TARJETA 3: ÓPTIMO OPERATIVO ---
         with col_t3:
             oper = top_rec["Operativo"]
             st.warning("🛡️ **ÓPTIMO OPERATIVO (Máximo Margen Convectivo [%])**")
             st.markdown(f"**Área Instalada [m²]:** `{oper['Área [m²]']} m²` | **TEMA:** `{oper['TEMA [-]']}`")
             st.markdown(f"**Casco Ds [mm]:** `{oper['Casco Ds [mm]']} mm` | **Longitud:** `{oper['Longitud [m]']} m`")
-            st.markdown(f"**Tubos [uds]:** `{oper['Tubos [uds]']}` | **OD:** `{oper['OD [mm]']} mm` (`{oper['Pasos [uds]']} pasos`)")
-            st.markdown(f"**U Real [W/m²·K]:** `{oper['U Real [W/m²·K]']}` | **Margen:** `{oper['Margen [%]']}%`")
+            st.markdown(f"**U Real [W/m²·K]:** `{oper['U Real [W/m²·K]']}` W/m²·K | **Margen:** `{oper['Margen [%]']}%`")
             st.metric("Inversión Estimada [USD]", f"${oper['CAPEX [USD]']:,.2f} USD")
 
         st.divider()
 
-        # =====================================================================
-        # SECCIÓN EDUCATIVA: ECUACIONES BASE Y CRITERIOS DE INGENIERÍA
-        # =====================================================================
-        with st.expander("📚 Ver Ecuaciones Base y Criterios de Ingeniería del Optimizador (Sinnott & Kern)", expanded=False):
+        # Sección Educativa de Ecuaciones Base
+        with st.expander("📚 Ver Ecuaciones Base y Criterios de Ingeniería del Optimizador", expanded=False):
             st.markdown("""
-            Para calcular y filtrar las **3 opciones óptimas** del catálogo comercial, el motor evalúa rigurosamente las siguientes expresiones y restricciones basadas en el libro *Chemical Engineering Design* (Sinnott & Towler, Cap. 12) y el método clásico de *Kern*:
-
-            #### 1. Balance Térmico y LMTD con Factor de Corrección ($F_t$)
-            * **Carga Térmica ($Q$):** $Q = \dot{m}_{\text{cal}} \cdot C_{p,\text{cal}} \cdot (T_{\text{cal,in}} - T_{\text{cal,out}})$ (propiedades reales evaluadas a $T_{\text{media}}$ mediante `CoolProp`).
-            * **Diferencia de Temperatura Media Logarítmica (Contracorriente pura):**
-              $$\Delta T_{\text{lm}} = \frac{\Delta T_1 - \Delta T_2}{\ln(\Delta T_1 / \Delta T_2)}$$
-            * **LMTD Efectiva:** $\Delta T_m = F_t \cdot \Delta T_{\text{lm}}$, donde $F_t$ se calcula analíticamente en función de los parámetros de temperatura $R$ y $S$ de Bowman para arreglos multipaso (filtrando estrictamente aquellos diseños con $F_t \ge 0.75$).
-
-            #### 2. Dimensionamiento Geométrico Preliminar (*Sizing* desde $U_{\text{trial}}$)
-            * **Área Requerida Teórica [$m^2$]:** 
-              $$A_{\text{req}} = \frac{Q}{U_{\text{trial}} \cdot \Delta T_m}$$
-              *(Empleando el coeficiente global estimado inicial $U_{\text{trial}}$ de la Tabla 12.1 de Sinnott).*
-            * **Número de Tubos y Diámetro de Carcasa ($D_s$):** A partir del área requerida y la longitud normalizada elegida ($L$), se determina la cantidad de tubos y se dimensiona el diámetro interno del casco ($D_s$) utilizando las constantes de arreglos triangulares TEMA ($K_1, n_1$).
-            * **Criterio de Esbeltez Estructural:** Se descartan geometrías desbalanceadas aplicando un filtro estricto de relación largo/diámetro: 
-              $$3 \le \frac{L}{D_s} \le 10$$
-
-            #### 3. Verificación Convectiva Rigurosa (*Rating de Kern* $\rightarrow U_{\text{real}}$)
-            Una vez fijada la geometría, se calculan las velocidades de flujo, números de Reynolds ($Re$) y Prandtl ($Pr$) para ambos lados:
-            * **Lado Tubos (Ecuación de Sieder-Tate / Dittus-Boelter, Sinnott Eq. 12.31):**
-              $$Nu_i = 0.023 \cdot Re_i^{0.8} \cdot Pr_i^{1/3}$$
-            * **Lado Casco (Ecuación de Kern, Sinnott Eq. 12.39):**
-              $$Nu_o = 0.36 \cdot Re_o^{0.55} \cdot Pr_o^{1/3}$$
-            * **Coeficiente Global Real ($U_{\text{calc}}$):** Se suman en serie las resistencias térmicas de película interior, exterior, la pared metálica con su respectiva conductividad ($k_{\text{metal}}$ según la aleación ASME seleccionada) y el factor de ensuciamiento normado ($R_f = 0.0003 \, \text{m}^2\cdot\text{K/W}$):
-              $$\frac{1}{U_{\text{calc}}} = \frac{1}{h_o} + R_f + \frac{d_o \cdot \ln(d_o / d_i)}{2 \cdot k_{\text{metal}}} + \left(\frac{d_o}{d_i}\right)\frac{1}{h_i}$$
-            * **Margen de Seguridad Térmica [%]:** 
-              $$\text{Margen} = \left(\frac{U_{\text{calc}} - U_{\text{req,efectivo}}}{U_{\text{req,efectivo}}}\right) \cdot 100$$
-
-            #### 4. Estimación Económica de Adquisición (*CAPEX* en USD)
-            * Basado en la ecuación factorial de costos de equipos a presión de Sinnott & Towler (Cap. 6, AACE Class 4/5):
-              $$\text{CAPEX} = 10000 + 450 \cdot A_{\text{instalada}}^{0.68} \cdot \left(1 + \left(\frac{P_{\text{dis}}}{50}\right)^{1.2}\right)$$
+            Para calcular y filtrar las opciones, el motor evalúa:
+            1. **Balance Térmico y LMTD con $F_t$**: $Q = \dot{m} C_p \Delta T$ y $\Delta T_m = F_t \cdot \Delta T_{\text{lm}}$.
+            2. **Sizing Inicial**: Conteo de tubos y diámetro de carcasa $D_s$ partiendo de un $U_{\text{trial}}$ automático derivado de la naturaleza de los fluidos.
+            3. **Rating de Kern**: Cálculo riguroso de coeficientes peliculares internos y externos ($h_i, h_o$) para hallar el $U_{\text{real}}$ operativo.
+            4. **Criterios Mecánicos y Económicos**: Ecuaciones normadas ASME Sec. VIII y correlaciones factoriales de costos CAPEX.
             """)
 
         st.divider()
-
         st.subheader("📈 Frontera de Pareto del Catálogo Evaluado")
-        st.markdown("Comparativa de los **equipos factibles**: **Inversión CAPEX [USD] vs. Área Instalada [m²]** clasificados por longitud del tubo:")
-        
         fig_pareto = px.scatter(
             df_grid, x="Área [m²]", y="CAPEX [USD]",
             color="Longitud [m]", size="Casco Ds [mm]",
@@ -270,10 +213,7 @@ else:
         st.plotly_chart(fig_pareto, use_container_width=True)
 
         st.divider()
-
         st.subheader("📥 Exportar Especificaciones del Equipo Optimizado")
-        st.write("Seleccione cuál de los 3 modelos recomendados desea emitir en pliego oficial:")
-        
         opcion_descarga = st.selectbox(
             "Modelo a Exportar en Hoja de Datos [-]:",
             options=["Económico (Mínimo CAPEX)", "Compacto (Menor Huella en Planta)", "Operativo (Máximo Margen)"]
@@ -289,21 +229,13 @@ else:
             res_opt_seleccionado = top_rec["Operativo"]["_res_full"]
             tag_str = f"HEX-OPT-OPR ({top_rec['Operativo']['TEMA [-]']})"
 
-        meta_opt = {"tag": tag_str, "proyecto": "OPTIMIZACIÓN DE CATÁLOGO", "revision": "0", "calculado_por": "E. Livingston (Optimizador)"}
+        meta_opt = {"tag": tag_str, "proyecto": "OPTIMIZACIÓN DE CATÁLOGO", "revision": "0", "calculado_por": "E. Livingston"}
         
         col_do1, col_do2 = st.columns(2)
         with col_do1:
-            st.download_button(
-                "📊 Descargar Planilla Calc (.xlsx) [Equipo Optimizado]",
-                generar_calc_hoja_datos(res_opt_seleccionado, meta_opt),
-                f"Data_Sheet_{tag_str}.xlsx"
-            )
+            st.download_button("📊 Descargar Planilla Calc (.xlsx)", generar_calc_hoja_datos(res_opt_seleccionado, meta_opt), f"Data_Sheet_{tag_str}.xlsx")
         with col_do2:
-            st.download_button(
-                "📄 Descargar PDF Oficial (.pdf) [Equipo Optimizado]",
-                generar_pdf_hoja_datos(res_opt_seleccionado, meta_opt),
-                f"Data_Sheet_{tag_str}.pdf"
-            )
+            st.download_button("📄 Descargar PDF Oficial (.pdf)", generar_pdf_hoja_datos(res_opt_seleccionado, meta_opt), f"Data_Sheet_{tag_str}.pdf")
 
     except ValueError as error_opt:
         st.error(f"🚨 **Sin Soluciones Viables en Catálogo:** {error_opt}")
