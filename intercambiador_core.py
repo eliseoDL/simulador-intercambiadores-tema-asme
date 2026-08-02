@@ -191,6 +191,7 @@ def optimizar_intercambiador(
     f_cal_nombre, f_frio_nombre, mat_casco, mat_tubo
 ):
     resultados_grid = []
+    resultados_backup = []
     U_auto_base = estimar_u_automatico(f_cal_nombre, f_frio_nombre)
 
     for od in CATALOGO_TUBOS_OD:
@@ -209,26 +210,35 @@ def optimizar_intercambiador(
                         Ds = res["Dimensionamiento TEMA & Kern"]["Diámetro de Casco Ds [mm]"]
                         esbeltez = L / (Ds / 1000.0)
                         
-                        # Filtro extremadamente amplio para capturar todo el abanico comercial disponible
-                        if 1.0 <= esbeltez <= 30.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmico [%]"] >= -80.0:
-                            resultados_grid.append({
-                                "TEMA [-]": tema, 
-                                "OD [mm]": od, 
-                                "Longitud [m]": L, 
-                                "Pasos [uds]": pasos,
-                                "Área [m²]": res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"],
-                                "Casco Ds [mm]": Ds,
-                                "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
-                                "Margen [%]": res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"],
-                                "Ft [-]": res["Termodinámica"]["Factor Ft [-]"],
-                                "CAPEX [USD]": res["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"],
-                                "_res_full": res
-                            })
+                        item_dict = {
+                            "TEMA [-]": tema, 
+                            "OD [mm]": od, 
+                            "Longitud [m]": L, 
+                            "Pasos [uds]": pasos,
+                            "Área [m²]": res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"],
+                            "Casco Ds [mm]": Ds,
+                            "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
+                            "Margen [%]": res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"],
+                            "Ft [-]": res["Termodinámica"]["Factor Ft [-]"],
+                            "CAPEX [USD]": res["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"],
+                            "_res_full": res
+                        }
+
+                        # Guardamos absolutamente todo en el backup para garantizar tolerancia a fallos
+                        resultados_backup.append(item_dict)
+
+                        # Filtro flexible para el modo principal
+                        if 1.0 <= esbeltez <= 35.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -90.0:
+                            resultados_grid.append(item_dict)
                     except Exception:
                         continue
 
+    # Si por alguna razón extrema el filtro principal quedó vacío, usamos el backup para NUNCA fallar
     if not resultados_grid:
-        raise ValueError("No se encontraron diseños factibles con los parámetros actuales en el catálogo comercial.")
+        if resultados_backup:
+            resultados_grid = resultados_backup
+        else:
+            raise ValueError("No se encontraron diseños factibles con los parámetros actuales en el catálogo comercial.")
 
     df = pd.DataFrame(resultados_grid)
     

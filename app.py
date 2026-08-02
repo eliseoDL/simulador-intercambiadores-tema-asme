@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit con selección inteligente y tarjetas garantizadas.
+# DESCRIPCIÓN: Interfaz Streamlit con barra lateral unificada y controles completos.
 # ==============================================================================
 
 import streamlit as st
@@ -24,7 +24,7 @@ st.markdown(
 )
 
 # ==============================================================================
-# BARRA LATERAL
+# BARRA LATERAL UNIFICADA
 # ==============================================================================
 st.sidebar.header("🎛️ Modo de Operación")
 modo_app = st.sidebar.radio(
@@ -55,7 +55,7 @@ m_casco_sel = st.sidebar.selectbox("Material Carcasa / Casco [-]", list(CATALOGO
 m_tubo_sel = st.sidebar.selectbox("Material del Haz de Tubos [-]", list(CATALOGO_MATERIALES_TUBOS.keys()), index=0)
 
 st.sidebar.divider()
-st.sidebar.header("🔧 Parámetros del Proceso")
+st.sidebar.header("🔧 Parámetros de Proceso y Temperaturas")
 m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
 
 T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
@@ -121,7 +121,7 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
 # ==============================================================================
 else:
     st.subheader("🚀 Selección Inteligente de Equipos (Grid Search Multicriterio)")
-    st.markdown("El motor evalúa automáticamente combinaciones normalizadas del catálogo comercial.")
+    st.markdown("El motor evalúa automáticamente combinaciones normalizadas del catálogo comercial considerando las temperaturas de proceso configuradas.")
 
     try:
         df_grid, top_rec = optimizar_intercambiador(
