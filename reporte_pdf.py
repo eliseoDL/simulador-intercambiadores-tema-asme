@@ -1,6 +1,6 @@
 # ==============================================================================
 # ARCHIVO: reporte_pdf.py
-# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF.
+# DESCRIPCIÓN: Generador de Hojas de Datos oficiales en formato PDF con sección Hidráulica.
 # ==============================================================================
 
 import io
@@ -30,6 +30,7 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
 
     d_tema = res.get("Dimensionamiento TEMA & Kern", {})
     d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
+    d_hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
     d_asme = res.get("Diseño Mecánico ASME BPVC", {})
     d_termo = res.get("Termodinámica", {})
 
@@ -54,6 +55,12 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
             ("Coeficiente Película Tubos hi [W/m²·K]", d_rating.get("Coeficiente Película Tubos hi [W/m²·K]")),
             ("Coeficiente Película Casco ho [W/m²·K]", d_rating.get("Coeficiente Película Casco ho [W/m²·K]"))
         ]),
+        ("--- HIDRÁULICA Y CAÍDA DE PRESIÓN ΔP ---", [
+            ("Velocidad Tubos vt [m/s]", d_hidro.get("Velocidad Tubos vt [m/s]")),
+            ("Caída Presión Tubos ΔPt [bar]", d_hidro.get("Caída Presión Tubos ΔPt [bar]")),
+            ("Velocidad Casco vs [m/s]", d_hidro.get("Velocidad Casco vs [m/s]")),
+            ("Caída Presión Casco ΔPs [bar]", d_hidro.get("Caída Presión Casco ΔPs [bar]"))
+        ]),
         ("--- DISEÑO MECÁNICO ASME BPVC ---", [
             ("Material Carcasa", d_asme.get("Material Carcasa [-]")),
             ("Material Tubos", d_asme.get("Material Tubos [-]")),
@@ -64,6 +71,7 @@ def generar_pdf_hoja_datos(res: dict, meta: dict) -> bytes:
         ("--- BALANCE TERMODINÁMICO ---", [
             ("Carga Térmica Q [kW]", d_termo.get("Carga Térmica Q [kW]")),
             ("Caudal Fluido Frío [kg/s]", d_termo.get("Caudal Fluido Frío [kg/s]")),
+            ("Temperatura Entrada Frío [°C]", d_termo.get("Temperatura Entrada Frío [°C]")),
             ("Temperatura Salida Frío [°C]", d_termo.get("Temperatura Salida Frío [°C]")),
             ("LMTD Corregida [°C]", d_termo.get("LMTD Corregida [°C]")),
             ("Factor Ft", d_termo.get("Factor Ft [-]"))

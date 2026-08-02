@@ -1,6 +1,7 @@
 # ==============================================================================
 # ARCHIVO: reporte_calc.py
-# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx).
+# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx)
+#              con diseño técnico incluyendo Hidráulica y Caídas de Presión ΔP.
 # ==============================================================================
 
 import io
@@ -20,6 +21,7 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
 
         d_tema = res.get("Dimensionamiento TEMA & Kern", {})
         d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
+        d_hidro = res.get("Hidráulica y Caída de Presión (Kern)", {})
         d_asme = res.get("Diseño Mecánico ASME BPVC", {})
         d_termo = res.get("Termodinámica", {})
 
@@ -35,9 +37,14 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
             ("--- VERIFICACIÓN CONVECTIVA (RATING) ---", ""),
             ("Coef. Global Estimado U_trial [W/m²·K]", d_rating.get("Coef. Global Estimado U_trial [W/m²·K]")),
             ("Coef. Global REAL U_calc [W/m²·K]", d_rating.get("Coef. Global REAL U_calc [W/m²·K]")),
-            ("Margen de Seguridad Térmica [%]", d_rating.get("Margen Seguridad Térmica [%]")),
+            ("Margen de Seguridad Térmico [%]", d_rating.get("Margen Seguridad Térmica [%]")),
             ("Coeficiente Película Tubos hi [W/m²·K]", d_rating.get("Coeficiente Película Tubos hi [W/m²·K]")),
             ("Coeficiente Película Casco ho [W/m²·K]", d_rating.get("Coeficiente Película Casco ho [W/m²·K]")),
+            ("--- HIDRÁULICA Y CAÍDA DE PRESIÓN ΔP ---", ""),
+            ("Velocidad Tubos vt [m/s]", d_hidro.get("Velocidad Tubos vt [m/s]")),
+            ("Caída Presión Tubos ΔPt [bar]", d_hidro.get("Caída Presión Tubos ΔPt [bar]")),
+            ("Velocidad Casco vs [m/s]", d_hidro.get("Velocidad Casco vs [m/s]")),
+            ("Caída Presión Casco ΔPs [bar]", d_hidro.get("Caída Presión Casco ΔPs [bar]")),
             ("--- DISEÑO MECÁNICO ASME BPVC ---", ""),
             ("Material Carcasa", d_asme.get("Material Carcasa [-]")),
             ("Material Tubos", d_asme.get("Material Tubos [-]")),
@@ -47,6 +54,7 @@ def generar_calc_hoja_datos(res: dict, meta: dict) -> bytes:
             ("--- TERMODINÁMICA ---", ""),
             ("Carga Térmica Q [kW]", d_termo.get("Carga Térmica Q [kW]")),
             ("Caudal Fluido Frío [kg/s]", d_termo.get("Caudal Fluido Frío [kg/s]")),
+            ("Temperatura Entrada Frío [°C]", d_termo.get("Temperatura Entrada Frío [°C]")),
             ("Temperatura Salida Frío [°C]", d_termo.get("Temperatura Salida Frío [°C]")),
             ("LMTD Corregida [°C]", d_termo.get("LMTD Corregida [°C]")),
             ("Factor Ft", d_termo.get("Factor Ft [-]"))

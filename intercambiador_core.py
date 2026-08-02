@@ -1,6 +1,7 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
-# DESCRIPCIÓN: Núcleo termodinámico robusto con CoolProp y optimizador TEMA avanzado.
+# DESCRIPCIÓN: Núcleo termodinámico e hidráulico con pérdida de carga Kern (ΔP)
+#              y optimización multicriterio estilo HTRI / Aspen EDR.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -117,16 +118,29 @@ def calcular_intercambiador(
     Ds_m = OD_tubo_m * ((N_tubos / K1) ** (1.0 / n1))
     Ds_mm = max(200.0, Ds_m * 1000.0)
 
+    # 1. Hidráulica Tubos
     v_tubos = (m_frio_kg_s / rho_frio) / max(1.0, (N_tubos / pasos_tubos) * at)
     Re_i = (rho_frio * v_tubos * ID_tubo_m) / mu_frio
     Nu_i = 0.023 * (Re_i ** 0.8) * (pr_frio ** (1.0/3.0))
     h_i = (Nu_i * k_frio) / ID_tubo_m
 
+    # Factor de fricción y Caída de presión Tubos (Sinnott Eq. 12.19)
+    f_tubo = max(0.001, 0.046 * (Re_i ** -0.2))
+    dP_tubos_Pa = pasos_tubos * (8.0 * f_tubo * (longitud_tubo_m / ID_tubo_m) + 2.5) * (rho_frio * (v_tubos ** 2) / 2.0)
+    dP_tubos_bar = dP_tubos_Pa / 1e5
+
+    # 2. Hidráulica Casco
     De = 0.015
     v_casco = (m_caliente_kg_s / rho_cal) / (Ds_m * 0.05)
     Re_o = (rho_cal * v_casco * De) / mu_cal
     Nu_o = 0.36 * (Re_o ** 0.55) * (pr_cal ** (1.0/3.0))
     h_o = (Nu_o * k_cal) / De
+
+    # Factor de fricción y Caída de presión Casco (Sinnott Eq. 12.26)
+    f_casco = max(0.01, 1.93 * (Re_o ** -0.187))
+    N_bafles = max(1, int(longitud_tubo_m / (Ds_m * 0.4)))
+    dP_casco_Pa = 8.0 * f_casco * (Ds_m / De) * N_bafles * (rho_cal * (v_casco ** 2) / 2.0)
+    dP_casco_bar = dP_casco_Pa / 1e5
 
     k_metal = CATALOGO_MATERIALES_TUBOS[mat_tubo_nombre]["k"]
     R_fouling = 0.0003
@@ -143,8 +157,8 @@ def calcular_intercambiador(
     t_min_casco = (P_dis_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_Pa) + 0.003
     t_min_casco_mm = max(6.35, t_min_casco * 1000.0)
 
-    # Factor de penalización en CAPEX según tipo TEMA (ej: AES con cabezal flotante o BEU en U son más costosos)
-    factor_tema_costo = 1.15 if tipo_tema in ["AES", "BEU"] else 1.0
+    factores_tema = {"BEM": 1.00, "AEM": 1.05, "AES": 1.20, "BEU": 1.12}
+    factor_tema_costo = factores_tema.get(tipo_tema, 1.0)
     capex = (10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_cal_bar / 50.0) ** 1.2))) * factor_tema_costo
 
     z_vals = np.linspace(0, longitud_tubo_m, 10)
@@ -167,6 +181,12 @@ def calcular_intercambiador(
             "Margen Seguridad Térmica [%]": round(margen_termico, 1),
             "Coeficiente Película Tubos hi [W/m²·K]": round(h_i, 1),
             "Coeficiente Película Casco ho [W/m²·K]": round(h_o, 1)
+        },
+        "Hidráulica y Caída de Presión (Kern)": {
+            "Velocidad Tubos vt [m/s]": round(v_tubos, 2),
+            "Caída Presión Tubos ΔPt [bar]": round(dP_tubos_bar, 3),
+            "Velocidad Casco vs [m/s]": round(v_casco, 2),
+            "Caída Presión Casco ΔPs [bar]": round(dP_casco_bar, 3)
         },
         "Diseño Mecánico ASME BPVC": {
             "Material Carcasa [-]": mat_casco_nombre,
@@ -201,7 +221,7 @@ def optimizar_intercambiador(
     for od in CATALOGO_TUBOS_OD:
         for L in CATALOGO_LONGITUDES:
             for pasos in CATALOGO_PASOS:
-                for tema in CATALOGO_TEMAS: # Recorre todos los tipos TEMA libremente
+                for tema in CATALOGO_TEMAS:
                     try:
                         res = calcular_intercambiador(
                             m_caliente_kg_s=m_cal_kg_s, T_cal_in_C=T_cal_in, T_cal_out_C=T_cal_out,
@@ -213,25 +233,42 @@ def optimizar_intercambiador(
                         )
                         Ds = res["Dimensionamiento TEMA & Kern"]["Diámetro de Casco Ds [mm]"]
                         esbeltez = L / (Ds / 1000.0)
+                        margen = res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"]
+                        capex = res["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"]
+                        area = res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"]
                         
+                        dP_tub = res["Hidráulica y Caída de Presión (Kern)"]["Caída Presión Tubos ΔPt [bar]"]
+                        dP_cas = res["Hidráulica y Caída de Presión (Kern)"]["Caída Presión Casco ΔPs [bar]"]
+                        
+                        # -------------------------------------------------------------
+                        # OPCIÓN 2: ÍNDICE DE MÉRITO HIDRÁULICO-ECONÓMICO (HTRI/EDR)
+                        # Penaliza exponencialmente diseños que ahoguen bombas (ΔP > 0.5 bar)
+                        # -------------------------------------------------------------
+                        penalizacion_dP = (1.0 + max(0.0, (dP_tub - 0.5) * 3.0)) * (1.0 + max(0.0, (dP_cas - 0.5) * 3.0))
+                        factor_penalizacion_margen = max(0.1, 1.0 + (margen / 100.0))
+                        indice_merito = (capex * penalizacion_dP) / (area * factor_penalizacion_margen)
+
                         item_dict = {
                             "TEMA [-]": tema, 
                             "OD [mm]": od, 
                             "Longitud [m]": L, 
                             "Pasos [uds]": pasos,
-                            "Área [m²]": res["Dimensionamiento TEMA & Kern"]["Área Instalada Real [m²]"],
+                            "Área [m²]": area,
                             "Casco Ds [mm]": Ds,
                             "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
-                            "Margen [%]": res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"],
+                            "Margen [%]": margen,
+                            "ΔP Tubos [bar]": dP_tub,
+                            "ΔP Casco [bar]": dP_cas,
                             "Ft [-]": res["Termodinámica"]["Factor Ft [-]"],
-                            "CAPEX [USD]": res["Diseño Mecánico ASME BPVC"]["CAPEX Estimado [USD]"],
+                            "CAPEX [USD]": capex,
+                            "Índice de Mérito": indice_merito,
                             "T Frío Salida [°C]": res["Termodinámica"]["Temperatura Salida Frío [°C]"],
                             "_res_full": res
                         }
 
                         resultados_backup.append(item_dict)
 
-                        if 1.0 <= esbeltez <= 40.0 and res["Verificación Convectiva (Rating Kern)"]["Margen Seguridad Térmica [%]"] >= -95.0:
+                        if 1.0 <= esbeltez <= 40.0 and margen >= -80.0:
                             resultados_grid.append(item_dict)
                     except Exception:
                         continue
@@ -246,7 +283,7 @@ def optimizar_intercambiador(
     
     idx_eco = df["CAPEX [USD]"].idxmin()
     idx_comp = df["Área [m²]"].idxmin()
-    idx_oper = df["Margen [%]"].idxmax()
+    idx_oper = df["Índice de Mérito"].idxmin() # Selecciona al mejor balance hidráulico-económico
 
     top_rec = {
         "Económico": df.loc[idx_eco].to_dict(),
