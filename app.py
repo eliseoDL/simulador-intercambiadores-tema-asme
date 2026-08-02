@@ -1,15 +1,13 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Streamlit con presiones operativas hasta 100 bar,
-#              visualización explícita de caídas de presión, márgenes térmicos,
-#              guías educativas UX sobre Margen Térmico y Selección de Pasos.
+# DESCRIPCIÓN: Interfaz Streamlit con presiones operativas, visualización explícita,
+#              guías de usuario UX y gráfico dinámico sensible a la asignación de fluidos.
 # ==============================================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 from intercambiador_core import calcular_intercambiador, optimizar_intercambiador, estimar_u_automatico, CATALOGO_MATERIALES_CASCO, CATALOGO_MATERIALES_TUBOS
 from reporte_pdf import generar_pdf_hoja_datos
 from reporte_calc import generar_calc_hoja_datos
@@ -27,7 +25,7 @@ st.markdown(
 )
 
 # ==============================================================================
-# FUNCIÓN AUXILIAR 1: GUÍA EDUCATIVA UX DE MARGEN TÉRMICO
+# GUÍAS EDUCATIVAS UX
 # ==============================================================================
 def mostrar_guia_margen_termico():
     with st.expander("ℹ️ Guía industrial: ¿Qué es el Margen Térmico (%) y cómo interpretarlo?"):
@@ -37,67 +35,63 @@ def mostrar_guia_margen_termico():
         $$\\text{Margen Térmico [\\%]} = \\left( \\frac{A_{\\text{instalada}} - A_{\\text{req, real}}}{A_{\\text{req, real}}} \\right) \\times 100$$
         
         ### 📊 ¿Cómo interpretar este valor en una planta?
-        
         | Rango del Margen | Diagnóstico | Explicación Operativa |
         |---|---|---|
-        | **`< 0 %`** | 🚨 **Insuficiente (Subdimensionado)** | El equipo **no alcanzará las temperaturas especificadas**; le falta área de transferencia o eficiencia convectiva. |
-        | **`0 % a +10 %`** | ⚠️ **Ajustado (Sin reserva)** | Funciona al límite con tubos nuevos, pero **fallará rápidamente en cuanto aparezca una mínima incrustación** (*fouling*). |
-        | **`+15 % a +35 %`** | ✅ **Óptimo Normativo (API 660 / TEMA)** | **Rango ideal de diseño EPC.** Asegura 1 a 2 años de operación continua sin limpieza, absorbiendo suciedad y picos de carga. |
-        | **`> +40 %`** | 💰 **Sobredimensionado (Exceso CAPEX)** | El equipo es innecesariamente grande y costoso para el servicio demandado. |
+        | **`< 0 %`** | 🚨 **Insuficiente (Subdimensionado)** | El equipo no alcanzará las temperaturas especificadas. |
+        | **`0 % a +10 %`** | ⚠️ **Ajustado (Sin reserva)** | Funciona al límite con tubos nuevos, fallará rápido con incrustaciones (*fouling*). |
+        | **`+15 % a +35 %`** | ✅ **Óptimo Normativo (API 660 / TEMA)** | **Rango ideal.** Asegura 1 a 2 años de operación sin limpieza. |
+        | **`> +40 %`** | 💰 **Sobredimensionado** | Exceso innecesario de CAPEX. |
         """)
 
-# ==============================================================================
-# FUNCIÓN AUXILIAR 2: GUÍA EDUCATIVA DEL OPTIMIZADOR Y MITO DE PASOS
-# ==============================================================================
 def mostrar_guia_seleccion_optimizador():
     with st.expander("🧠 Guía de Ingeniería: ¿Cómo elige el algoritmo el Top 3 y por qué no siempre conviene usar 4 o 6 pasos?"):
         st.markdown("""
         ### 1. El mito del factor $F_t$ y los pasos por tubos
-        Existe la creencia común de que aumentar a 4 o 6 pasos por tubos mejora el factor de corrección de temperatura ($F_t$). **¡En realidad ocurre lo contrario!**
-        * **1 Paso por tubo (100% Contracorriente puro):** Tiene el máximo factor termodinámico posible ($F_t = 1.00$).
-        * **2, 4 o 6 Pasos por tubos:** Al tener trayectorias que van y vienen dentro del casco, parte del flujo opera en corriente paralela, disminuyendo el factor $F_t$ (< 1.00).
-        * **Pasos por carcasa:** Por estándar mundial TEMA (Serie E), **siempre se utiliza 1 solo paso por carcasa** salvo cruces térmicos extremos donde se justifiquen cascos en serie o tipo F.
+        Existe la creencia de que aumentar a 4 o 6 pasos por tubos mejora el factor de corrección de temperatura ($F_t$). **¡En realidad ocurre lo contrario!**
+        * **1 Paso por tubo (100% Contracorriente puro):** Tiene el máximo factor termodinámico ($F_t = 1.00$).
+        * **2, 4 o 6 Pasos:** El flujo entra en corriente paralela en los retornos, disminuyendo el $F_t$ (< 1.00).
 
-        ### 2. El verdadero motivo para usar 2, 4 o 6 pasos: Velocidad vs. Bombeo
-        Aumentar el número de pasos por tubos tiene un propósito 100% hidráulico y convectivo:
-        1. **Beneficio térmico:** Al pasar el fluido por menos tubos en paralelo, la velocidad ($v_t$) sube, lo que eleva la turbulencia ($Re_i$) y mejora el coeficiente de película ($h_i$), **reduciendo el Área ($m^2$) requerida**.
-        2. **El costo energético ($\Delta P$):** La caída de presión en los tubos **crece con el cubo del número de pasos** ($\Delta P \propto n_{\\text{pasos}}^3$). Pasar de 2 a 4 pasos multiplica la pérdida de presión por **~8 veces**.
-        3. **Conclusión industrial:** Por eso el **80% de los intercambiadores reales son de 2 pasos por tubos**, ya que logran una excelente turbulencia sin ahogar las bombas de la planta.
+        ### 2. El verdadero motivo para usar multipaso: Velocidad vs. Bombeo
+        1. **Beneficio térmico:** Aumenta la velocidad ($v_t$), eleva la turbulencia y mejora el coeficiente de película ($h_i$), reduciendo el Área requerida.
+        2. **El costo energético ($\Delta P$):** La caída de presión en tubos crece al **cubo** del número de pasos ($\Delta P \propto n_{\\text{pasos}}^3$).
+        3. **Conclusión:** Por eso el 80% de los intercambiadores son de 2 pasos por tubos (gran turbulencia sin ahogar las bombas).
 
         ### 3. ¿Cómo calcula el motor las 3 recomendaciones?
-        * 💰 **Óptimo Económico:** Filtra diseños con caída de presión normal ($\Delta P \le 1.0 \\text{ bar}$) y selecciona el de **menor inversión CAPEX**. A alta presión ($> 25 \\text{ bar}$) activa el *crossover ASME*, eligiendo tubos en U (`BEU`) para ahorrar en placas tubulares pesadas.
-        * 📐 **Óptimo Compacto:** Busca el equipo con la **menor superficie física instalada ($m^2$)** permitiendo mayor velocidad ($\Delta P \le 1.5 \\text{ bar}$). Acá es donde competirán los diseños de 4 o 6 pasos.
-        * 🛡️ **Óptimo Operativo (API 660):** Evalúa el Costo Total de Propiedad (TCO), premiando cabezales flotantes (`AES` / `BEU`) por su facilidad de limpieza (hidrolavado) y absorción de dilataciones térmicas severas.
+        * 💰 **Óptimo Económico:** Filtra diseños con $\Delta P \le 1.0 \\text{ bar}$ y selecciona el de menor inversión. A alta presión ($> 25 \\text{ bar}$) activa el *crossover ASME*, eligiendo tubos en U (`BEU`) para ahorrar en placas pesadas.
+        * 📐 **Óptimo Compacto:** Busca la menor superficie ($m^2$) permitiendo mayor velocidad ($\Delta P \le 1.5 \\text{ bar}$). Acá suelen ganar los 4 o 6 pasos.
+        * 🛡️ **Óptimo Operativo (API 660):** Evalúa el Costo de Ciclo de Vida (TCO), premiando cabezales flotantes (`AES` / `BEU`) por su mantenibilidad y limpieza.
         """)
 
 # ==============================================================================
-# FUNCIÓN AUXILIAR 3: GRÁFICO DINÁMICO MULTIPASO Y DIAGNÓSTICO DE CHOQUE TÉRMICO
+# GRÁFICO DINÁMICO MULTIPASO (SENSIBLE A LA ASIGNACIÓN DE FLUIDOS)
 # ==============================================================================
 def generar_grafico_perfil_pasos(res: dict):
-    """
-    Genera un gráfico dinámico Plotly que muestra la evolución de temperatura
-    paso a paso por el haz de tubos, el perfil de temperatura de pared (T_wall)
-    y evalúa la agresividad del intercambio (choque térmico dT/dz).
-    """
     d_tema = res.get("Dimensionamiento TEMA & Kern", {})
     d_rating = res.get("Verificación Convectiva (Rating Kern)", {})
     d_termo = res.get("Termodinámica", {})
+    perfil = res.get("PerfilGrafico", {})
 
     pasos_tubo = int(d_tema.get("Pasos por Tubos [uds]", 2))
-    pasos_carcasa = 1  # Estándar TEMA para un solo casco
+    pasos_carcasa = 1
     tipo_tema_str = str(d_tema.get("Tipo TEMA [-]", "BEM"))
     L_tubo = float(d_tema.get("Longitud del Tubo [m]", 3.0))
     L_total = L_tubo * pasos_tubo
 
+    # Identificar quién va por dónde para T_wall y leyendas
+    asignacion_cal = perfil.get("Asignacion_Caliente", "Carcasa")
+    str_carcasa_full = d_tema.get("Asignación Lado Carcasa", "Carcasa")
+    str_tubos_full = d_tema.get("Asignación Lado Tubos", "Tubos")
+    str_carcasa_corto = str_carcasa_full.split(" (")[0]
+    str_tubos_corto = str_tubos_full.split(" (")[0]
+
+    h_i_val = float(d_rating.get("Coeficiente Película Tubos hi [W/m²·K]", 1000.0))
+    h_o_val = float(d_rating.get("Coeficiente Película Casco ho [W/m²·K]", 1500.0))
+    u_val = float(d_rating.get("Coef. Global REAL U_calc [W/m²·K]", 800.0))
+
     T_frio_in = float(d_termo.get("Temperatura Entrada Frío [°C]", 25.0))
     T_frio_out = float(d_termo.get("Temperatura Salida Frío [°C]", 60.0))
-    
-    perfil_orig = res.get("PerfilGrafico", {})
-    T_cal_in = float(perfil_orig.get("T_cal", [120.0, 80.0])[0])
-    T_cal_out = float(perfil_orig.get("T_cal", [120.0, 80.0])[-1])
-
-    u_val = float(d_rating.get("Coef. Global REAL U_calc [W/m²·K]", 800.0))
-    ho_val = float(d_rating.get("Coeficiente Película Casco ho [W/m²·K]", 1500.0))
+    T_cal_in = float(perfil.get("T_cal", [120.0, 80.0])[0])
+    T_cal_out = float(perfil.get("T_cal", [120.0, 80.0])[-1])
 
     n_puntos = 50 * pasos_tubo
     x_total = np.linspace(0, L_total, n_puntos)
@@ -106,22 +100,30 @@ def generar_grafico_perfil_pasos(res: dict):
     T_frio_curva = T_frio_in + (T_frio_out - T_frio_in) * (1.0 - np.exp(-k_decay * x_total)) / (1.0 - np.exp(-k_decay * L_total))
     T_cal_curva = T_cal_in - (T_cal_in - T_cal_out) * (1.0 - np.exp(-k_decay * x_total)) / (1.0 - np.exp(-k_decay * L_total))
     
+    # Lógica física de película: el metal toma temp según quién lo toque desde adentro o afuera
+    if asignacion_cal == "Carcasa":
+        h_hot = h_o_val
+        nombre_caliente = f"Lado Carcasa: {str_carcasa_corto} (Caliente)"
+        nombre_frio = f"Lado Tubos: {str_tubos_corto} (Frío)"
+    else:
+        h_hot = h_i_val
+        nombre_caliente = f"Lado Tubos: {str_tubos_corto} (Caliente)"
+        nombre_frio = f"Lado Carcasa: {str_carcasa_corto} (Frío)"
+
     T_wall_curva = [
-        tc - (tc - tf) * (u_val / max(1.0, ho_val)) 
+        tc - (tc - tf) * (u_val / max(1.0, h_hot)) 
         for tc, tf in zip(T_cal_curva, T_frio_curva)
     ]
 
     dT_dz_max = abs(T_frio_curva[5] - T_frio_curva[0]) / max(0.01, (x_total[5] - x_total[0]))
     T_wall_max = max(T_wall_curva)
 
-    # --- BANNER SUPERIOR: RESUMEN DE ARREGLO DE PASOS Y TIPOLOGÍA TEMA ---
     st.info(
         f"🔩 **Arreglo Geométrico del Equipo Seleccionado:** Tipología Normativa **`TEMA {tipo_tema_str}`**  |  "
         f"**Pasos por Tubos:** `{pasos_tubo} paso{'s' if pasos_tubo > 1 else ''}`  |  "
         f"**Pasos por Carcasa:** `{pasos_carcasa} paso`"
     )
 
-    # --- PANEL DE DIAGNÓSTICO INDUSTRIAL (KPIs EN PANTALLA) ---
     c_kpi1, c_kpi2, c_kpi3 = st.columns(3)
     c_kpi1.metric("🔥 Temp. Máxima de Pared (T_wall)", f"{T_wall_max:.1f} °C", "Película límite")
     c_kpi2.metric("📈 Gradiente Térmico Máx. (dT/dz)", f"{dT_dz_max:.1f} °C/m", "Severidad inicial")
@@ -138,13 +140,13 @@ def generar_grafico_perfil_pasos(res: dict):
 
     fig.add_trace(go.Scatter(
         x=x_total, y=T_cal_curva,
-        mode='lines', name='Fluido Caliente (Carcasa/Tubos)',
+        mode='lines', name=nombre_caliente,
         line=dict(color='#E53E3E', width=3)
     ))
 
     fig.add_trace(go.Scatter(
         x=x_total, y=T_frio_curva,
-        mode='lines', name='Fluido Frío (Recorrido Tubos)',
+        mode='lines', name=nombre_frio,
         line=dict(color='#3182CE', width=3)
     ))
 
@@ -174,7 +176,7 @@ def generar_grafico_perfil_pasos(res: dict):
 
     fig.update_layout(
         title="<b>Perfil Térmico Dinámico Multipaso y Agresividad de Película (T_wall)</b><br>"
-              "<i>Muestra el calentamiento asintótico en cada paso por el haz de tubos y evalúa el riesgo de daño térmico</i>",
+              "<i>Muestra el calentamiento asintótico en cada paso y evalúa el riesgo de daño térmico</i>",
         xaxis_title="Recorrido Acumulado a través del Haz de Tubos [m]",
         yaxis_title="Temperatura Operativa / Metal [°C]",
         hovermode="x unified",
@@ -364,7 +366,6 @@ else:
             st.markdown(f"**Mg Térmico (Exceso):** `{oper.get('Margen [%]', 0)}%`")
             st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
 
-        # Guías interactivas para el usuario (Margen Térmico y Selección del Optimizador)
         mostrar_guia_margen_termico()
         mostrar_guia_seleccion_optimizador()
 
