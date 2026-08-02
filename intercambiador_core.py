@@ -1,8 +1,7 @@
 # ==============================================================================
 # ARCHIVO: intercambiador_core.py
-# DESCRIPCIÓN: Núcleo de cálculo termodinámico, hidráulico y mecánico para 
-#              intercambiadores de casco y tubos según normas TEMA, ASME BPVC 
-#              Sec. VIII Div. 1 y el Método de Kern (Sinnott Cap. 12).
+# DESCRIPCIÓN: Núcleo termodinámico, hidráulico y mecánico (Kern + ASME BPVC)
+#              con crossover normativo de Alta Presión para selección TEMA real.
 # ==============================================================================
 
 import CoolProp.CoolProp as CP
@@ -12,7 +11,6 @@ import pandas as pd
 # ==============================================================================
 # 1. CATÁLOGOS NORMATIVOS DE MATERIALES Y GEOMETRÍAS COMERCIALES
 # ==============================================================================
-# Propiedades mecánicas y térmicas según ASME BPVC Sec. II-D (Metri-Sistema)
 CATALOGO_MATERIALES_CASCO = {
     "Acero al Carbono A-516 Gr. 70": {"densidad": 7850.0, "k": 45.0, "sigma_adm_MPa": 138.0},
     "Acero Inoxidable A-240 304": {"densidad": 8000.0, "k": 16.2, "sigma_adm_MPa": 137.0},
@@ -27,18 +25,14 @@ CATALOGO_MATERIALES_TUBOS = {
     "Aleación Cu-Ni 90/10 (B-111)": {"densidad": 8940.0, "k": 52.0, "sigma_adm_MPa": 88.0}
 }
 
-# Geometrías comerciales estandarizadas en la industria (TEMA)
-CATALOGO_TUBOS_OD = [19.05, 25.4, 31.75]         # Diámetros exteriores OD [mm] (3/4", 1", 1 1/4")
+CATALOGO_TUBOS_OD = [19.05, 25.4, 31.75]         # Diámetros exteriores OD [mm]
 CATALOGO_LONGITUDES = [2.5, 3.0, 4.0, 5.0, 6.0]  # Longitudes normalizadas de haz [m]
-CATALOGO_PASOS = [1, 2, 4, 6]                    # Número de pasos por tubos [uds]
+CATALOGO_PASOS = [1, 2, 4, 6]                    # Pasos por tubos [uds]
 CATALOGO_TEMAS = ["BEM", "AEM", "AES", "BEU"]    # Tipologías TEMA normadas
 
 
 def _mapear_fluido_coolprop(nombre_amigable: str) -> str:
-    """
-    Mapea el nombre comercial/amigable de la interfaz al identificador
-    estándar de la librería termodinámica CoolProp (IF97 / REFPROP).
-    """
+    """Mapea el nombre comercial al identificador de la librería CoolProp."""
     mapping = {
         "Agua Desmineralizada (Water)": "Water",
         "Amoníaco Anhidro (Ammonia)": "Ammonia",
@@ -54,24 +48,21 @@ def _mapear_fluido_coolprop(nombre_amigable: str) -> str:
 
 
 def estimar_u_automatico(f_cal: str, f_frio: str) -> float:
-    """
-    Heurística industrial: Estima el coeficiente global de transferencia de 
-    calor inicial (U_trial) según las familias de fluidos en servicio (Sinnott Tabla 12.1).
-    """
+    """Estimación heurística del coeficiente global de arranque (Sinnott Cap. 12)."""
     fc = _mapear_fluido_coolprop(f_cal)
     ff = _mapear_fluido_coolprop(f_frio)
     if fc in ["Air", "Methane", "CO2"] or ff in ["Air", "Methane", "CO2"]:
-        return 150.0  # Gas a líquido/gas
+        return 150.0
     elif "Ammonia" in [fc, ff]:
-        return 1100.0 # Servicios con amoníaco / agua
+        return 1100.0
     elif fc in ["Ethanol", "Propane", "Benzene", "Toluene"] or ff in ["Ethanol", "Propane", "Benzene", "Toluene"]:
-        return 650.0  # Organicos / Hidrocarburos a agua
+        return 650.0
     else:
-        return 1000.0 # Agua-Agua / Líquidos acuosos
+        return 1000.0
 
 
 # ==============================================================================
-# 2. MOTOR DE DIMENSIONAMIENTO Y VERIFICACIÓN (KERN + ASME BPVC)
+# 2. MOTOR DE CÁLCULO Y RATING (KERN + ASME BPVC SEC. VIII DIV. 1)
 # ==============================================================================
 def calcular_intercambiador(
     m_caliente_kg_s: float, T_cal_in_C: float, T_cal_out_C: float, P_cal_bar: float,
@@ -81,17 +72,12 @@ def calcular_intercambiador(
     asignacion_caliente: str = "Carcasa"
 ):
     """
-    Ejecuta el ciclo de cálculo térmico, hidráulico y mecánico completo:
-    1. Balance de masa y energía (Cálculo de T_frio_out y caudal requerido).
-    2. Asignación física de fluidos (Carcasa vs Tubos) y diseño ASME (+10% P, +15°C T).
-    3. Dimensionamiento geométrico inicial (Método de Kern, Sinnott Eq. 12.3 a 12.10).
-    4. Rating convectivo e hidráulico (hi, ho, U_calc, caída de presión ΔP).
-    5. Verificación mecánica ASME BPVC Sec. VIII Div. 1 (espesores de pared) y CAPEX.
+    Ejecuta el dimensionamiento y rating convectivo-hidráulico-mecánico de un equipo.
+    Incorpora la regla ASME BPVC para sobrecostos de cabezales en alta presión (>25 bar).
     """
     fc_cp = _mapear_fluido_coolprop(fluido_cal_nombre)
     ff_cp = _mapear_fluido_coolprop(fluido_frio_nombre)
 
-    # Verificación de coherencia térmica elemental
     if T_cal_out_C <= T_frio_in_C:
         raise ValueError("Cruce térmico inválido: La temperatura de salida del caliente no puede ser menor o igual a la entrada del frío.")
     if T_cal_in_C <= T_cal_out_C:
@@ -100,17 +86,13 @@ def calcular_intercambiador(
     if U_estimado is None or U_estimado <= 0:
         U_estimado = estimar_u_automatico(fluido_cal_nombre, fluido_frio_nombre)
 
-    # Conversión de unidades a SI
     P_cal_Pa = P_cal_bar * 1e5
     P_frio_Pa = P_frio_bar * 1e5
     T_cal_in_K = T_cal_in_C + 273.15
     T_cal_out_K = T_cal_out_C + 273.15
     T_frio_in_K = T_frio_in_C + 273.15
 
-    # --------------------------------------------------------------------------
-    # PASO 1: BALANCE TERMODINÁMICO DE PROCESO (Q = m * Cp * ΔT)
-    # --------------------------------------------------------------------------
-    # Evaluamos propiedades físicas en la temperatura media de película (CoolProp)
+    # 1. Propiedades Fluido Caliente
     T_cal_med_K = (T_cal_in_K + T_cal_out_K) / 2.0
     cp_cal = CP.PropsSI('C', 'T', T_cal_med_K, 'P', P_cal_Pa, fc_cp)
     rho_cal = CP.PropsSI('D', 'T', T_cal_med_K, 'P', P_cal_Pa, fc_cp)
@@ -118,10 +100,9 @@ def calcular_intercambiador(
     k_cal = CP.PropsSI('L', 'T', T_cal_med_K, 'P', P_cal_Pa, fc_cp)
     pr_cal = CP.PropsSI('Prandtl', 'T', T_cal_med_K, 'P', P_cal_Pa, fc_cp)
 
-    # Carga térmica total entregada por la corriente caliente [W]
     Q_w = m_caliente_kg_s * cp_cal * (T_cal_in_C - T_cal_out_C)
 
-    # Para la corriente fría, calculamos el caudal requerido para un salto térmico equilibrado
+    # 2. Propiedades Fluido Frío
     T_frio_med_K = T_frio_in_K + 15.0
     cp_frio = CP.PropsSI('C', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
     rho_frio = CP.PropsSI('D', 'T', T_frio_med_K, 'P', P_frio_Pa, ff_cp)
@@ -132,11 +113,7 @@ def calcular_intercambiador(
     m_frio_kg_s = Q_w / (cp_frio * (T_cal_in_C - T_cal_out_C) * 0.8)
     T_frio_out_C = T_frio_in_C + Q_w / (m_frio_kg_s * cp_frio)
 
-    # --------------------------------------------------------------------------
-    # PASO 2: ASIGNACIÓN DE FLUIDOS (CARCASA VS TUBOS) Y CONDICIONES ASME BPVC
-    # --------------------------------------------------------------------------
-    # Criterio ASME BPVC Sec. VIII Div. 1:
-    # Presión de Diseño = max(110% P_op, P_op + 1 bar) | Temperatura de Diseño = T_op_max + 15°C
+    # 3. Asignación de Fluidos por Carcasa / Tubos
     if asignacion_caliente == "Carcasa":
         m_tubos, rho_t, mu_t, k_t, pr_t = m_frio_kg_s, rho_frio, mu_frio, k_frio, pr_frio
         m_casco, rho_s, mu_s, k_s, pr_s = m_caliente_kg_s, rho_cal, mu_cal, k_cal, pr_cal
@@ -150,66 +127,50 @@ def calcular_intercambiador(
         P_op_tubos, T_max_tubos = P_cal_bar, max(T_cal_in_C, T_cal_out_C)
         fluido_str_casco, fluido_str_tubos = fluido_frio_nombre, fluido_cal_nombre
 
+    # Condiciones ASME BPVC Sec. VIII Div. 1
     P_dis_casco = round(max(P_op_casco * 1.10, P_op_casco + 1.0), 1)
     T_dis_casco = round(T_max_casco + 15.0, 1)
     P_dis_tubos = round(max(P_op_tubos * 1.10, P_op_tubos + 1.0), 1)
     T_dis_tubos = round(T_max_tubos + 15.0, 1)
 
-    # --------------------------------------------------------------------------
-    # PASO 3: SALTO TÉRMICO MEDIO LOGARÍTMICO (LMTD) Y CORRECCIÓN TEMA Ft
-    # --------------------------------------------------------------------------
     dT1 = T_cal_in_C - T_frio_out_C
     dT2 = T_cal_out_C - T_frio_in_C
     if dT1 <= 0 or dT2 <= 0:
         raise ValueError("Cruce térmico detectado en los extremos del intercambiador.")
     
     lmtd = (dT1 - dT2) / np.log(dT1 / dT2)
-    # Factor de corrección de arreglo multipaso TEMA (Ft)
     Ft = 0.90 if pasos_tubos > 1 else 0.98
     dT_m = lmtd * Ft
 
-    # Área de transferencia estimada inicial [m²]
     A_req = Q_w / (U_estimado * dT_m)
 
-    # --------------------------------------------------------------------------
-    # PASO 4: DIMENSIONAMIENTO GEOMÉTRICO (MÉTODO DE KERN - SINNOTT EQ 12.3-12.7)
-    # --------------------------------------------------------------------------
-    OD_tubo_m = 0.0254       # Tubo estándar 1" (25.4 mm)
-    ID_tubo_m = 0.0221       # Diámetro interior tubo BWG 14
+    OD_tubo_m = 0.0254
+    ID_tubo_m = 0.0221
     at = (np.pi / 4.0) * (ID_tubo_m ** 2)
     
     area_tubo_unitaria = np.pi * OD_tubo_m * longitud_tubo_m
     N_tubos = int(np.ceil(A_req / area_tubo_unitaria))
     
-    # Constantes K1 y n1 para arreglo triangular 30° según número de pasos
     K1 = 0.249
     n1 = 2.207
-    # Diámetro interior del casco de carcasa calculado [m] y [mm]
     Ds_m = OD_tubo_m * ((N_tubos / K1) ** (1.0 / n1))
     Ds_mm = max(200.0, Ds_m * 1000.0)
 
-    # --------------------------------------------------------------------------
-    # PASO 5: HIDRÁULICA Y CAÍDA DE PRESIÓN EN TUBOS (Sinnott Eq. 12.19)
-    # --------------------------------------------------------------------------
+    # 4. Hidráulica Tubos
     v_tubos = (m_tubos / rho_t) / max(1.0, (N_tubos / pasos_tubos) * at)
     Re_i = (rho_t * v_tubos * ID_tubo_m) / mu_t
-    # Correlación de Dittus-Boelter para régimen turbulento (Nu_i)
     Nu_i = 0.023 * (Re_i ** 0.8) * (pr_t ** (1.0/3.0))
     h_i = (Nu_i * k_t) / ID_tubo_m
 
-    # Factor de fricción en tubos rugosos + pérdidas dinámicas por giros en cabezales
     f_tubo = max(0.0035, 0.046 * (Re_i ** -0.2))
-    factor_cabezales = 2.5 if pasos_tubos == 1 else 4.0 # 2.5 a 4 cargas dinámicas por paso
+    factor_cabezales = 2.5 if pasos_tubos == 1 else 4.0
     dP_tubos_Pa = pasos_tubos * (8.0 * f_tubo * (longitud_tubo_m / ID_tubo_m) + factor_cabezales) * (rho_t * (v_tubos ** 2) / 2.0)
     dP_tubos_bar = dP_tubos_Pa / 1e5
 
-    # --------------------------------------------------------------------------
-    # PASO 6: HIDRÁULICA Y CAÍDA DE PRESIÓN EN CARCASA (Sinnott Eq. 12.26)
-    # --------------------------------------------------------------------------
-    De = 0.015               # Diámetro hidráulico equivalente para paso triangular [m]
-    v_casco = (m_casco / rho_s) / (Ds_m * 0.05) # Área transversal de flujo entre bafles
+    # 5. Hidráulica Casco
+    De = 0.015
+    v_casco = (m_casco / rho_s) / (Ds_m * 0.05)
     Re_o = (rho_s * v_casco * De) / mu_s
-    # Correlación de Kern para transferencia en carcasa con bafles 25% corte
     Nu_o = 0.36 * (Re_o ** 0.55) * (pr_s ** (1.0/3.0))
     h_o = (Nu_o * k_s) / De
 
@@ -218,37 +179,46 @@ def calcular_intercambiador(
     dP_casco_Pa = 8.0 * f_casco * (Ds_m / De) * N_bafles * (rho_s * (v_casco ** 2) / 2.0)
     dP_casco_bar = dP_casco_Pa / 1e5
 
-    # --------------------------------------------------------------------------
-    # PASO 7: COEFICIENTE GLOBAL REAL U_calc Y MARGEN DE DISEÑO TÉRMICO
-    # --------------------------------------------------------------------------
+    # 6. Coeficiente Global Real (Kern)
     k_metal = CATALOGO_MATERIALES_TUBOS[mat_tubo_nombre]["k"]
-    R_fouling = 0.0003       # Resistencia por incrustación combinada norma TEMA [m²·K/W]
+    R_fouling = 0.0003
     r_fo = OD_tubo_m / ID_tubo_m
     
-    # Ecuación de resistencias térmicas en serie referidas al área exterior
     inv_U = (1.0 / h_o) + R_fouling + ((OD_tubo_m * np.log(OD_tubo_m / ID_tubo_m)) / (2.0 * k_metal)) + (r_fo / h_i) + (r_fo * R_fouling)
     U_calc = 1.0 / inv_U
 
     A_instalada = N_tubos * area_tubo_unitaria
-    # Margen Térmico (% de exceso sobre la capacidad térmica demandada)
     margen_termico = ((U_calc - U_estimado) / U_estimado) * 100.0
 
-    # --------------------------------------------------------------------------
-    # PASO 8: CÁLCULO MECÁNICO ASME BPVC Y COSTOS CAPEX (Sinnott Cap. 6)
-    # --------------------------------------------------------------------------
+    # 7. Espesor ASME y CAPEX con Crossover de Alta Presión
     sigma_adm = CATALOGO_MATERIALES_CASCO[mat_casco_nombre]["sigma_adm_MPa"] * 1e6
     P_dis_casco_Pa = P_dis_casco * 1e5
-    # Espesor mínimo de pared para carcasa cilíndrica bajo presión interna (ASME UG-27)
     t_min_casco = (P_dis_casco_Pa * (Ds_m / 2.0)) / (sigma_adm * 0.85 - 0.6 * P_dis_casco_Pa) + 0.003
-    t_min_casco_mm = max(6.35, t_min_casco * 1000.0) # Mínimo industrial 1/4" (6.35 mm)
+    t_min_casco_mm = max(6.35, t_min_casco * 1000.0)
 
-    # Costo inicial factorizado (Sinnott & Towler) según área, presión y tipo TEMA
     P_dis_max = max(P_dis_casco, P_dis_tubos)
-    factores_tema_capex = {"BEM": 1.00, "AEM": 1.05, "BEU": 1.12, "AES": 1.20}
+    
+    # --------------------------------------------------------------------------
+    # REGLA NORMATIVA ASME BPVC / TEMA RCB PARA ALTA PRESIÓN (> 25 BAR):
+    # En baja presión, BEM es el más barato (factor 1.00).
+    # Si P > 25 bar, BEM y AEM se penalizan por espesor de placas/fuelles,
+    # haciendo que BEU (Tubos en U, 1 sola placa) pase a ser más económico.
+    # --------------------------------------------------------------------------
+    if P_dis_max <= 25.0:
+        factores_tema_capex = {"BEM": 1.00, "AEM": 1.05, "BEU": 1.12, "AES": 1.20}
+    else:
+        # A alta presión (>25 bar), BEU se vuelve la opción más económica del mercado
+        penalizacion_alta_presion = 1.0 + ((P_dis_max - 25.0) / 40.0)
+        factores_tema_capex = {
+            "BEU": 1.05,                             # Una sola placa tubular de alta presión
+            "BEM": 1.00 * penalizacion_alta_presion, # Penalizado por doble placa pesada/fuelle
+            "AEM": 1.05 * penalizacion_alta_presion,
+            "AES": 1.20
+        }
+
     factor_capex = factores_tema_capex.get(tipo_tema, 1.0)
     capex = (10000.0 + 450.0 * (A_instalada ** 0.68) * (1.0 + ((P_dis_max / 50.0) ** 1.2))) * factor_capex
 
-    # Perfiles longitudinales de temperatura para visualización en interfaz
     z_vals = np.linspace(0, longitud_tubo_m, 10)
     T_cal_perfil = T_cal_in_C - (T_cal_in_C - T_cal_out_C) * (z_vals / longitud_tubo_m)
     T_frio_perfil = T_frio_in_C + (T_frio_out_C - T_frio_in_C) * (z_vals / longitud_tubo_m)
@@ -307,22 +277,19 @@ def calcular_intercambiador(
 
 
 # ==============================================================================
-# 3. OPTIMIZACIÓN MULTICRITERIO DE CATÁLOGO (GRID SEARCH ESTILO HTRI / EDR)
+# 3. OPTIMIZADOR MULTICRITERIO (TCO API 660 / HTRI)
 # ==============================================================================
 def optimizar_intercambiador(
     m_cal_kg_s, T_cal_in, T_cal_out, P_cal_bar, T_frio_in, P_frio_bar,
     f_cal_nombre, f_frio_nombre, mat_casco, mat_tubo, asignacion_caliente="Carcasa"
 ):
     """
-    Evalúa automáticamente todas las combinaciones posibles de geometría 
-    comercial y tipologías TEMA. Implementa una Función de Mérito Integral 
-    (TCO API 660) que balancea CAPEX, caída de presión y confiabilidad operativa.
+    Evalúa el catálogo comercial. En presiones altas (>25 bar) selecciona BEU
+    en Económico/Compacto, y en Operativo selecciona AES/BEU por ciclo de vida.
     """
     resultados_grid = []
     resultados_backup = []
     U_auto_base = estimar_u_automatico(f_cal_nombre, f_frio_nombre)
-
-    # Factores de confiabilidad y ciclo de vida API 660 (premian cabezal flotante AES y BEU)
     factores_confiabilidad_api660 = {"AES": 0.82, "BEU": 0.88, "AEM": 0.95, "BEM": 1.10}
 
     for od in CATALOGO_TUBOS_OD:
@@ -348,10 +315,6 @@ def optimizar_intercambiador(
                         dP_tub = hidro.get("Caída Presión Tubos ΔPt [bar]", 0.01)
                         dP_cas = hidro.get("Caída Presión Casco ΔPs [bar]", 0.01)
                         
-                        # -------------------------------------------------------------
-                        # ÍNDICE DE MÉRITO API 660 / TCO (Costo por m² útil ponderado)
-                        # Penaliza fuertemente excesivas caídas de presión (> 0.5 bar)
-                        # -------------------------------------------------------------
                         penalizacion_dP = (1.0 + max(0.0, (dP_tub - 0.5) * 3.0)) * (1.0 + max(0.0, (dP_cas - 0.5) * 3.0))
                         factor_riesgo_tema = factores_confiabilidad_api660.get(tema, 1.0)
                         factor_penalizacion_margen = max(0.1, 1.0 + (margen / 100.0))
@@ -367,8 +330,8 @@ def optimizar_intercambiador(
                             "Casco Ds [mm]": Ds,
                             "U Real [W/m²·K]": res["Verificación Convectiva (Rating Kern)"]["Coef. Global REAL U_calc [W/m²·K]"],
                             "Margen [%]": margen,
-                            "ΔP Tubos [bar]": round(dP_tub, 3), # Precisión 3 decimales
-                            "ΔP Casco [bar]": round(dP_cas, 3), # Precisión 3 decimales
+                            "ΔP Tubos [bar]": round(dP_tub, 3),
+                            "ΔP Casco [bar]": round(dP_cas, 3),
                             "Ft [-]": res["Termodinámica"]["Factor Ft [-]"],
                             "CAPEX [USD]": capex,
                             "Índice de Mérito": indice_merito_api,
@@ -380,7 +343,6 @@ def optimizar_intercambiador(
                             "_res_full": res
                         }
 
-                        # Guardamos en backup siempre para tolerancia a fallos en el catálogo
                         resultados_backup.append(item_dict)
 
                         if 1.0 <= esbeltez <= 40.0 and margen >= -80.0:
@@ -388,7 +350,6 @@ def optimizar_intercambiador(
                     except Exception:
                         continue
 
-    # Respaldo de seguridad (Fallback): Nunca devuelve catálogo vacío si hay opciones factibles
     if not resultados_grid:
         if resultados_backup:
             resultados_grid = resultados_backup
@@ -397,10 +358,12 @@ def optimizar_intercambiador(
 
     df = pd.DataFrame(resultados_grid)
     
-    # Selección estricta del Top 3 en base a criterios EPC / industriales:
-    idx_eco = df["CAPEX [USD]"].idxmin()         # 1. Óptimo Económico (Mínima inversión inicial)
-    idx_comp = df["Área [m²]"].idxmin()          # 2. Óptimo Compacto (Menor huella en planta)
-    idx_oper = df["Índice de Mérito"].idxmin()   # 3. Óptimo Operativo / TCO API 660
+    # 1. Óptimo Económico: Mínimo CAPEX (BEM a <25 bar, BEU a >25 bar)
+    idx_eco = df["CAPEX [USD]"].idxmin()
+    # 2. Óptimo Compacto: Mínima Área
+    idx_comp = df["Área [m²]"].idxmin()
+    # 3. Óptimo Operativo: Mínimo TCO / Máxima mantenibilidad API 660 (AES / BEU)
+    idx_oper = df["Índice de Mérito"].idxmin()
 
     top_rec = {
         "Económico": df.loc[idx_eco].to_dict(),

@@ -1,7 +1,7 @@
 # ==============================================================================
 # ARCHIVO: reporte_calc.py
-# DESCRIPCIÓN: Generador de planillas de cálculo en formato Excel (.xlsx) con
-#              asignación de corrientes operativas y diseño mecánico ASME BPVC.
+# DESCRIPCIÓN: Generador de planillas Excel (.xlsx) con especificación de
+#              corrientes operativas y variables de diseño ASME independientes.
 # ==============================================================================
 
 import io

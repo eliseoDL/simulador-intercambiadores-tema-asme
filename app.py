@@ -1,8 +1,8 @@
 # ==============================================================================
 # ARCHIVO: app.py
-# DESCRIPCIÓN: Interfaz Web Streamlit con controles de asignación de fluidos,
-#              presiones operativas independientes, blindaje anti-KeyError y 
-#              visualización explícita de 3 decimales para caídas de presión ΔP.
+# DESCRIPCIÓN: Interfaz Streamlit con presiones operativas hasta 100 bar,
+#              visualización explícita de caídas de presión, márgenes térmicos
+#              y guía interactiva para el usuario sobre el Margen Térmico (%).
 # ==============================================================================
 
 import streamlit as st
@@ -25,6 +25,26 @@ st.markdown(
     "**Motor termodinámico e hidráulico (`CoolProp`), Método de Kern (Sinnott Cap. 12) y condiciones de Diseño ASME BPVC Sección VIII Div. 1.**\n\n"
     "*Compatible con exportación de corrientes de simuladores de proceso (UniSim / DWSIM / Aspen).* "
 )
+
+# ==============================================================================
+# FUNCIÓN AUXILIAR: GUÍA EDUCATIVA UX DE MARGEN TÉRMICO
+# ==============================================================================
+def mostrar_guia_margen_termico():
+    with st.expander("ℹ️ Guía industrial: ¿Qué es el Margen Térmico (%) y cómo interpretarlo?"):
+        st.markdown("""
+        El **Margen de Seguridad Térmica (*Thermal Design Margin*)** indica el porcentaje de **superficie de transferencia de calor extra** que posee el intercambiador real respecto a la superficie mínima teórica requerida por el proceso:
+        
+        $$\\text{Margen Térmico [\\%]} = \\left( \\frac{U_{\\text{calc}} - U_{\\text{req}}}{U_{\\text{req}}} \\right) \\times 100$$
+        
+        ### 📊 ¿Cómo interpretar este valor en una planta?
+        
+        | Rango del Margen | Diagnóstico | Explicación Operativa |
+        |---|---|---|
+        | **`< 0 %`** | 🚨 **Insuficiente (Subdimensionado)** | El equipo **no alcanzará las temperaturas especificadas**; le falta área de transferencia o eficiencia convectiva. |
+        | **`0 % a +10 %`** | ⚠️ **Ajustado (Sin reserva)** | Funciona al límite con tubos nuevos, pero **fallará rápidamente en cuanto aparezca una mínima incrustación** (*fouling*). |
+        | **`+15 % a +35 %`** | ✅ **Óptimo Normativo (API 660 / TEMA)** | **Rango ideal de diseño EPC.** Asegura 1 a 2 años de operación continua sin limpieza, absorbiendo suciedad y picos de carga. |
+        | **`> +40 %`** | 💰 **Sobredimensionado (Exceso CAPEX)** | El equipo es innecesariamente grande y costoso para el servicio demandado. |
+        """)
 
 # ==============================================================================
 # BARRA LATERAL UNIFICADA (CONTROLES DE PROCESO Y MATERIALES)
@@ -71,11 +91,13 @@ m_cal = st.sidebar.slider("Caudal Fluido Caliente [kg/s]", 1.0, 20.0, 5.0, 0.5)
 
 T_cal_in = st.sidebar.slider("Temp. Entrada Caliente [°C]", 20.0, 300.0, 120.0, 5.0)
 T_cal_out = st.sidebar.slider("Temp. Salida Caliente [°C]", 10.0, 250.0, 60.0, 5.0)
-P_cal_op = st.sidebar.slider("Presión Operativa Fluido Caliente [bar]", 1.0, 50.0, 10.0, 0.5)
+# Slider ampliado hasta 100 bar para alta presión industrial
+P_cal_op = st.sidebar.slider("Presión Operativa Fluido Caliente [bar]", 1.0, 100.0, 10.0, 1.0)
 
 st.sidebar.divider()
 T_frio_in = st.sidebar.slider("Temp. Entrada Fluido Frío [°C]", 5.0, 40.0, 25.0, 1.0)
-P_frio_op = st.sidebar.slider("Presión Operativa Fluido Frío [bar]", 1.0, 50.0, 5.0, 0.5)
+# Slider ampliado hasta 100 bar para alta presión industrial
+P_frio_op = st.sidebar.slider("Presión Operativa Fluido Frío [bar]", 1.0, 100.0, 5.0, 1.0)
 
 # ==============================================================================
 # MODO 1: VERIFICACIÓN Y SIMULACIÓN MANUAL
@@ -99,7 +121,6 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
         st.subheader("📊 Métricas Clave y Verificación Convectiva e Hidráulica")
         col1, col2, col3, col4 = st.columns(4)
         
-        # Extracción segura anti-KeyError utilizando .get()
         area_inst = res.get("Dimensionamiento TEMA & Kern", {}).get("Área Instalada Real [m²]", "N/A")
         u_real = res.get("Verificación Convectiva (Rating Kern)", {}).get("Coef. Global REAL U_calc [W/m²·K]", "N/A")
         
@@ -111,8 +132,11 @@ if modo_app == "⚙️ Verificación y Simulación Manual":
 
         col1.metric("Área TEMA Instalada [m²]", f"{area_inst} m²")
         col2.metric("U REAL Calculado (Kern)", f"{u_real} W/m²·K")
-        col3.metric("ΔP Tubos / Casco [bar]", f"{dp_t:.3f} / {dp_s:.3f} bar") # Muestra 3 decimales
-        col4.metric("Margen Térmico [%]", f"{margen_term} %")
+        col3.metric("ΔP Tubos / Casco [bar]", f"{dp_t:.3f} / {dp_s:.3f} bar")
+        col4.metric("Margen Térmico [%] (Exceso)", f"{margen_term} %")
+
+        # Guía explicativa para el usuario
+        mostrar_guia_margen_termico()
 
         st.divider()
         col_dl1, col_dl2 = st.columns(2)
@@ -172,7 +196,8 @@ else:
             st.markdown(f"**P Diseño Casco/Tubos:** `{eco.get('P Dis Casco [bar]', 0)}` / `{eco.get('P Dis Tubos [bar]', 0)} bar`")
             dp_t_eco = float(eco.get("ΔP Tubos [bar]", 0.01))
             dp_s_eco = float(eco.get("ΔP Casco [bar]", 0.01))
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_eco:.3f}` / `{dp_s_eco:.3f} bar`") # 3 decimales
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_eco:.3f}` / `{dp_s_eco:.3f} bar`")
+            st.markdown(f"**Mg Térmico (Exceso):** `{eco.get('Margen [%]', 0)}%`")
             st.metric("Inversión Estimada", f"${eco.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t2:
@@ -183,7 +208,8 @@ else:
             st.markdown(f"**P Diseño Casco/Tubos:** `{comp.get('P Dis Casco [bar]', 0)}` / `{comp.get('P Dis Tubos [bar]', 0)} bar`")
             dp_t_comp = float(comp.get("ΔP Tubos [bar]", 0.01))
             dp_s_comp = float(comp.get("ΔP Casco [bar]", 0.01))
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_comp:.3f}` / `{dp_s_comp:.3f} bar`") # 3 decimales
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_comp:.3f}` / `{dp_s_comp:.3f} bar`")
+            st.markdown(f"**Mg Térmico (Exceso):** `{comp.get('Margen [%]', 0)}%`")
             st.metric("Inversión Estimada", f"${comp.get('CAPEX [USD]', 0):,.2f} USD")
 
         with col_t3:
@@ -194,8 +220,12 @@ else:
             st.markdown(f"**P Diseño Casco/Tubos:** `{oper.get('P Dis Casco [bar]', 0)}` / `{oper.get('P Dis Tubos [bar]', 0)} bar`")
             dp_t_oper = float(oper.get("ΔP Tubos [bar]", 0.01))
             dp_s_oper = float(oper.get("ΔP Casco [bar]", 0.01))
-            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_oper:.3f}` / `{dp_s_oper:.3f} bar`") # 3 decimales
+            st.markdown(f"**ΔP Tubos / Casco:** `{dp_t_oper:.3f}` / `{dp_s_oper:.3f} bar`")
+            st.markdown(f"**Mg Térmico (Exceso):** `{oper.get('Margen [%]', 0)}%`")
             st.metric("Inversión Estimada", f"${oper.get('CAPEX [USD]', 0):,.2f} USD")
+
+        # Guía explicativa para el usuario
+        mostrar_guia_margen_termico()
 
         st.divider()
         st.subheader("📥 Exportar Especificaciones del Equipo Optimizado")
