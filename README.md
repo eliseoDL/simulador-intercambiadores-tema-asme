@@ -11,7 +11,7 @@
 
 ---
 
-## 🎯 Propuesta de Valor y Ciclo de Diseño (Sizing vs. Rating)
+## Propuesta de Valor y Ciclo de Diseño (Sizing vs. Rating)
 
 En el diseño industrial de intercambiadores bajo norma **TEMA / ASME BPVC VIII**, el cálculo del coeficiente global de transferencia $U$ presenta una iteración matemática obligatoria descrita por **Ray Sinnott & Gavin Towler** (*Chemical Engineering Design*, Cap. 12.3):
 
@@ -20,14 +20,14 @@ En el diseño industrial de intercambiadores bajo norma **TEMA / ASME BPVC VIII*
 
 ---
 
-## 🧪 Rigor Termodinámico (`CoolProp`) y Materiales (ASME Sec. II-D)
+## Rigor Termodinámico (`CoolProp`) y Materiales (ASME Sec. II-D)
 
-El sistema se integra de forma nativa con la librería de código abierto **`CoolProp`**, resolviendo entalpías, viscosidades, densidades y calores específicos ($C_p$) reales mediante ecuaciones de estado Helmholtz/IAPWS para los principales fluidos de proceso en la industria química, Oil & Gas y energía:
+El sistema se integra de forma nativa con la librería de código abierto **`CoolProp`**, resolviendo entalpías, viscosidades, densidades y calores específicos ($C_p$) reales mediante ecuaciones de estado Helmholtz/IAPWS para los principales fluidos de proceso en la industria química disponibles:
 *   `Agua Desmineralizada (Water)` | `Amoníaco Anhidro (Ammonia)` | `Etanol (Ethanol)`
 *   `Propano Industrial (Propane)` | `Metano / Gas Natural (Methane)` | `Dióxido de Carbono (CO2)`
 *   `Aire Seco (Air)` | `Benceno (Benzene)` | `Tolueno (Toluene)`
 
-El módulo mecánico permite **seleccionar independientemente** los materiales normalizados para la **carcasa** y el **haz de tubos**, aplicando automáticamente su tensión admisible ($S$) para el espesor por presión interna y su conductividad térmica ($k_{\text{metal}}$) para la pared tubular:
+El módulo mecánico permite **seleccionar independientemente** los materiales normalizados para la **carcasa** y el **haz de tubos**, aplicando automáticamente su tensión admisible ($S$) para el espesor por presión interna y su conductividad térmica ($k_{\text{metal}}$) para la pared tubular, teniendo los datos de los sigueintes materiales disponibles:
 *   `Acero al Carbono SA-516 Gr. 70 / SA-179` ($k = 50.0 \text{ W/m·K}$)
 *   `Acero Inoxidable Austenítico Type 316 / 316L` ($k = 16.3 \text{ W/m·K}$)
 *   `Cuproníquel SB-111 Cu-Ni 90/10` ($k = 52.0 \text{ W/m·K}$)
@@ -35,16 +35,16 @@ El módulo mecánico permite **seleccionar independientemente** los materiales n
 
 ---
 
-## 🛠️ Arquitectura y Modos de Operación
+## Arquitectura de la app y Modos de Operación
 
 La interfaz en **Streamlit** ofrece dos modalidades de trabajo profesional:
 
-*   **⚙️ Modo 1 — Verificación y Simulación Manual:** Permite dimensionar un equipo dada una geometría específica elegida por el usuario, evaluando el perfil térmico en contracorriente y curvas de sensibilidad económica en tiempo real.
-*   **🚀 Modo 2 — Optimizador e Inteligencia de Catálogo (*Grid Search*):** Ejecuta un barrido combinatorio automático sobre piezas normalizadas (**TEMA / BWG / longitudes estándar**), eliminando geometrías inviables por esbeltez estructural ($3 \le L/D_s \le 10$) o margen térmico negativo. Emite un ranking con **3 Tarjetas Top** (*Económico, Compacto y Operativo*) y genera una **Frontera de Pareto (CAPEX vs. Área)** para facilitar decisiones en ingeniería básica (*AACE Class 4/5 Estimate*).
+*   **Modo 1 — Verificación y Simulación Manual:** Permite dimensionar un equipo dada una geometría específica elegida por el usuario, evaluando el perfil térmico en contracorriente y curvas de sensibilidad económica en tiempo real, ideal para la verificación de equipos.
+*   **Modo 2 — Optimizador e Inteligencia de Catálogo (*Grid Search*):** Ejecuta un barrido combinatorio automático sobre piezas normalizadas (**TEMA / BWG / longitudes estándar**), eliminando geometrías inviables por esbeltez estructural ($3 \le L/D_s \le 10$) o margen térmico negativo. Emite un ranking con **3 Equipos** (*Económico, Compacto y Operativo*) y genera una **Frontera de Pareto (CAPEX vs. Área)** para facilitar decisiones en ingeniería básica (*AACE Class 4/5 Estimate*). El Capex se calcula utilizando ecuación dada por la "Chemical Engineering Design" (Volumen 6 de la serie Coulson & Richardson’s Chemical Engineering), escrito por Ray Sinnott y Gavin Towler.
 
 ---
 
-## 📚 Normas, Estándares y Bases de Cálculo
+## Normas, Estándares y Bases de Cálculo:
 
 | Parámetro / Módulo | Norma / Referencia | Base Técnica / Ecuación |
 | :--- | :--- | :--- |
@@ -57,11 +57,16 @@ La interfaz en **Streamlit** ofrece dos modalidades de trabajo profesional:
 
 ---
 
-## 📊 Emisión Oficial de Especificaciones (Equipment Data Sheet)
+## Emisión Oficial de Especificaciones (Equipment Data Sheet)
 
 El software permite descargar en un clic la especificación del equipo diseñado o del candidato optimizado en dos formatos industriales con unidades explícitas (`[kW]`, `[kg/s]`, `[°C]`, `[mm]`, `[W/m²·K]`, `[USD]`):
 *   **Planilla Editable (`.xlsx`):** Compatible 100% con **LibreOffice Calc** y Microsoft Excel, lista para personalizaciones o revisiones de proyecto.
 *   **Reporte Inmutable (`.pdf`):** Pliego técnico formato A4 de página única normado bajo directrices API/ASME, listo para adjuntar a memorias de cálculo de licitación.
+
+Librerias utilizadas para la realización de los reportes:
+
+Reporte en formato xls se utilizo "pandas" y "openpyxl" lo cual nos permite tabular y leer/modificar/guardar formato xls.
+Reportes en formato pdf se utilizo "reportlab" que nos permite maquetar documentos.
 
 ---
 
